@@ -68,8 +68,7 @@ export interface CreateWorkflowInput {
   name: string;
   nodes: WorkflowNode[];
   connections: Record<string, unknown>;
-  settings?: Record<string, unknown>;
-  active?: boolean;
+  settings: Record<string, unknown>;
 }
 
 export interface N8nClientOptions {
