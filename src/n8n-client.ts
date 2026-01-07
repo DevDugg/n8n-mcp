@@ -290,16 +290,6 @@ export class N8nClient {
     });
   }
 
-  async runWorkflow(
-    id: string,
-    data?: Record<string, unknown>
-  ): Promise<Execution> {
-    return this.request(`/workflows/${encodeURIComponent(id)}/run`, {
-      method: "POST",
-      body: JSON.stringify(data || {}),
-    });
-  }
-
   // ============ EXECUTIONS ============
 
   async listExecutions(params?: {

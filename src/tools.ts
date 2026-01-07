@@ -2,38 +2,53 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { N8nClient } from "./n8n-client.js";
 
-// ============ SHARED SCHEMAS ============
+// ============ SCHEMAS MATCHING n8n OpenAPI SPEC ============
 
+// Node schema - matches /components/schemas/node
 const nodeSchema = z.object({
-  id: z.string().optional().describe("Unique node ID (auto-generated if not provided)"),
+  id: z.string().optional().describe("Unique node ID (UUID format recommended)"),
   name: z.string().describe("Display name for the node"),
-  type: z.string().describe("Node type (e.g., 'n8n-nodes-base.manualTrigger', 'n8n-nodes-base.set', 'n8n-nodes-base.httpRequest')"),
-  position: z.tuple([z.number(), z.number()]).describe("Node position [x, y] on canvas"),
-  parameters: z.record(z.unknown()).default({}).describe("Node-specific parameters"),
-  typeVersion: z.number().default(1).describe("Node type version (check n8n docs for latest)"),
-  credentials: z.record(z.unknown()).optional().describe("Credential references for this node"),
+  type: z.string().describe("Node type (e.g., 'n8n-nodes-base.manualTrigger')"),
+  typeVersion: z.number().default(1).describe("Node type version"),
+  position: z.array(z.number()).length(2).describe("Node position [x, y] on canvas"),
+  parameters: z.record(z.unknown()).optional().describe("Node-specific parameters"),
+  disabled: z.boolean().optional().describe("Whether the node is disabled"),
+  notes: z.string().optional().describe("Notes for the node"),
+  notesInFlow: z.boolean().optional().describe("Show notes in flow"),
+  executeOnce: z.boolean().optional().describe("Execute only once"),
+  alwaysOutputData: z.boolean().optional().describe("Always output data"),
+  retryOnFail: z.boolean().optional().describe("Retry on failure"),
+  maxTries: z.number().optional().describe("Max retry attempts"),
+  waitBetweenTries: z.number().optional().describe("Wait time between retries (ms)"),
+  onError: z.enum(["stopWorkflow", "continueRegularOutput", "continueErrorOutput"]).optional().describe("Error handling behavior"),
+  credentials: z.record(z.unknown()).optional().describe("Credential references"),
 });
 
+// Connection schema - matches n8n connections format
 const connectionSchema = z.record(
   z.object({
     main: z.array(
       z.array(
         z.object({
           node: z.string().describe("Target node name"),
-          type: z.literal("main").default("main"),
-          index: z.number().default(0).describe("Output/input index"),
+          type: z.enum(["main"]).default("main"),
+          index: z.number().default(0).describe("Input index on target node"),
         })
       )
-    ).describe("Array of output connections"),
+    ),
   })
-).describe("Connection mappings: { 'SourceNodeName': { main: [[{ node: 'TargetNodeName', type: 'main', index: 0 }]] } }");
+).describe("Connections between nodes. Format: { 'SourceNodeName': { main: [[{ node: 'TargetNodeName', type: 'main', index: 0 }]] } }");
 
+// WorkflowSettings schema - matches /components/schemas/workflowSettings
 const workflowSettingsSchema = z.object({
-  executionOrder: z.enum(["v0", "v1"]).default("v1").describe("Execution order version"),
+  saveExecutionProgress: z.boolean().optional().describe("Save execution progress"),
   saveManualExecutions: z.boolean().optional().describe("Save manual execution results"),
-  callerPolicy: z.enum(["any", "none", "workflowsFromAList", "workflowsFromSameOwner"]).optional(),
+  saveDataErrorExecution: z.enum(["all", "none"]).optional().describe("Save data on error"),
+  saveDataSuccessExecution: z.enum(["all", "none"]).optional().describe("Save data on success"),
+  executionTimeout: z.number().max(3600).optional().describe("Execution timeout in seconds (max 3600)"),
   errorWorkflow: z.string().optional().describe("Workflow ID to run on error"),
-  timezone: z.string().optional().describe("Timezone for scheduled workflows"),
+  timezone: z.string().optional().describe("Timezone (e.g., 'America/New_York')"),
+  executionOrder: z.enum(["v0", "v1"]).default("v1").describe("Execution order version"),
 }).describe("Workflow settings");
 
 export function registerTools(server: McpServer, n8nClient: N8nClient): void {
@@ -41,13 +56,14 @@ export function registerTools(server: McpServer, n8nClient: N8nClient): void {
 
   server.tool(
     "list_workflows",
-    "Retrieve all workflows from n8n. Optionally filter by active status or tags.",
+    "Retrieve all workflows from n8n. Optionally filter by active status, tags, or name.",
     {
-      active: z.boolean().optional().describe("Filter by active status (true/false)"),
+      active: z.boolean().optional().describe("Filter by active status"),
       tags: z.string().optional().describe("Comma-separated tag names to filter by"),
-      limit: z.number().int().min(1).max(100).default(50).describe("Maximum results to return"),
+      name: z.string().optional().describe("Filter by workflow name"),
+      limit: z.number().int().min(1).max(250).default(50).describe("Maximum results (max 250)"),
     },
-    async ({ active, tags, limit }) => {
+    async ({ active, tags, name, limit }) => {
       try {
         const result = await n8nClient.listWorkflows({ active, tags, limit });
         return {
@@ -66,7 +82,7 @@ export function registerTools(server: McpServer, n8nClient: N8nClient): void {
     "get_workflow",
     "Retrieve detailed information about a specific workflow including nodes, connections, and settings.",
     {
-      workflowId: z.string().describe("The ID of the workflow to retrieve"),
+      workflowId: z.string().describe("The workflow ID"),
     },
     async ({ workflowId }) => {
       try {
@@ -87,40 +103,42 @@ export function registerTools(server: McpServer, n8nClient: N8nClient): void {
     "create_workflow",
     `Create a new workflow in n8n. The workflow is created in INACTIVE state.
 
-REQUIRED FIELDS:
-- name: Workflow name
-- nodes: Array of node objects
-- connections: How nodes connect to each other
-- settings: Must include { "executionOrder": "v1" } at minimum
+REQUIRED FIELDS (per n8n OpenAPI spec):
+- name: Workflow name (string)
+- nodes: Array of node objects (at least one trigger node recommended)
+- connections: Object defining how nodes connect
+- settings: Workflow settings object (use { "executionOrder": "v1" } at minimum)
 
-NODE STRUCTURE:
+NODE OBJECT STRUCTURE:
 {
-  "id": "unique-id",           // Optional, auto-generated
-  "name": "Node Name",         // Required, display name
-  "type": "n8n-nodes-base.X",  // Required, node type
-  "position": [250, 300],      // Required, [x, y] coordinates
-  "parameters": {},            // Node-specific config
-  "typeVersion": 1             // Usually 1, check docs
+  "name": "My Node",              // Required: display name
+  "type": "n8n-nodes-base.X",     // Required: node type
+  "typeVersion": 1,               // Required: version number
+  "position": [250, 300],         // Required: [x, y] coordinates
+  "parameters": {},               // Optional: node-specific config
+  "id": "uuid-here"               // Optional: auto-generated if omitted
 }
 
 COMMON NODE TYPES:
-- n8n-nodes-base.manualTrigger (Manual execution)
-- n8n-nodes-base.webhook (HTTP webhook trigger)
-- n8n-nodes-base.scheduleTrigger (Cron/interval trigger)
-- n8n-nodes-base.set (Set/transform data)
-- n8n-nodes-base.httpRequest (Make HTTP calls)
-- n8n-nodes-base.code (JavaScript/Python code)
-- n8n-nodes-base.if (Conditional branching)
+- n8n-nodes-base.manualTrigger - Manual execution trigger
+- n8n-nodes-base.webhook - HTTP webhook trigger (requires activation)
+- n8n-nodes-base.scheduleTrigger - Cron/interval trigger
+- n8n-nodes-base.set - Set/transform data
+- n8n-nodes-base.httpRequest - Make HTTP requests
+- n8n-nodes-base.code - JavaScript/Python code execution
+- n8n-nodes-base.if - Conditional branching
 
 CONNECTIONS FORMAT:
 {
   "Source Node Name": {
     "main": [[{ "node": "Target Node Name", "type": "main", "index": 0 }]]
   }
-}`,
+}
+
+NOTE: The 'active' field is READ-ONLY. Use activate_workflow tool after creation.`,
     {
-      name: z.string().describe("Name for the new workflow"),
-      nodes: z.array(nodeSchema).min(1).describe("Array of node definitions (at least one trigger node)"),
+      name: z.string().describe("Workflow name"),
+      nodes: z.array(nodeSchema).min(1).describe("Array of node objects"),
       connections: connectionSchema,
       settings: workflowSettingsSchema,
     },
@@ -129,21 +147,27 @@ CONNECTIONS FORMAT:
         const workflow = await n8nClient.createWorkflow({
           name,
           nodes: nodes.map((n, idx) => ({
-            id: n.id || `node-${idx}`,
+            id: n.id || `${Date.now()}-${idx}`,
             name: n.name,
             type: n.type,
+            typeVersion: n.typeVersion ?? 1,
             position: n.position as [number, number],
             parameters: n.parameters || {},
-            typeVersion: n.typeVersion || 1,
+            ...(n.disabled !== undefined && { disabled: n.disabled }),
+            ...(n.notes && { notes: n.notes }),
             ...(n.credentials && { credentials: n.credentials }),
+            ...(n.onError && { onError: n.onError }),
           })),
           connections,
-          settings,
+          settings: {
+            ...settings,
+            executionOrder: settings.executionOrder || "v1",
+          },
         });
         return {
           content: [{
             type: "text",
-            text: `Workflow created successfully!\n\nID: ${workflow.id}\nName: ${workflow.name}\nActive: ${workflow.active}\n\nFull response:\n${JSON.stringify(workflow, null, 2)}`,
+            text: `Workflow created successfully!\n\nID: ${workflow.id}\nName: ${workflow.name}\nActive: ${workflow.active}\n\nUse activate_workflow tool to activate it.\n\nFull response:\n${JSON.stringify(workflow, null, 2)}`,
           }],
         };
       } catch (error) {
@@ -157,15 +181,15 @@ CONNECTIONS FORMAT:
 
   server.tool(
     "update_workflow",
-    `Update an existing workflow. You can update name, nodes, connections, and/or settings.
+    `Update an existing workflow. Provide only the fields you want to change.
 
-NOTE: To activate/deactivate a workflow, use the activate_workflow or deactivate_workflow tools instead.
-
-Provide only the fields you want to update. The workflow ID is required.`,
+NOTE:
+- The 'active' field is READ-ONLY. Use activate_workflow/deactivate_workflow tools.
+- When updating nodes, you must provide the COMPLETE nodes array (not just changes).`,
     {
-      workflowId: z.string().describe("ID of workflow to update"),
-      name: z.string().optional().describe("New name for the workflow"),
-      nodes: z.array(nodeSchema).optional().describe("Complete replacement node array"),
+      workflowId: z.string().describe("Workflow ID to update"),
+      name: z.string().optional().describe("New workflow name"),
+      nodes: z.array(nodeSchema).optional().describe("Complete replacement nodes array"),
       connections: connectionSchema.optional(),
       settings: workflowSettingsSchema.optional(),
     },
@@ -175,13 +199,16 @@ Provide only the fields you want to update. The workflow ID is required.`,
         if (name !== undefined) updates.name = name;
         if (nodes !== undefined) {
           updates.nodes = nodes.map((n, idx) => ({
-            id: n.id || `node-${idx}`,
+            id: n.id || `${Date.now()}-${idx}`,
             name: n.name,
             type: n.type,
+            typeVersion: n.typeVersion ?? 1,
             position: n.position as [number, number],
             parameters: n.parameters || {},
-            typeVersion: n.typeVersion || 1,
+            ...(n.disabled !== undefined && { disabled: n.disabled }),
+            ...(n.notes && { notes: n.notes }),
             ...(n.credentials && { credentials: n.credentials }),
+            ...(n.onError && { onError: n.onError }),
           }));
         }
         if (connections !== undefined) updates.connections = connections;
@@ -191,12 +218,12 @@ Provide only the fields you want to update. The workflow ID is required.`,
         return {
           content: [{
             type: "text",
-            text: `Workflow updated successfully!\n\nID: ${workflow.id}\nName: ${workflow.name}\nActive: ${workflow.active}\n\nFull response:\n${JSON.stringify(workflow, null, 2)}`,
+            text: `Workflow updated!\n\nID: ${workflow.id}\nName: ${workflow.name}\nActive: ${workflow.active}\n\n${JSON.stringify(workflow, null, 2)}`,
           }],
         };
       } catch (error) {
         return {
-          content: [{ type: "text", text: `Error updating workflow: ${(error as Error).message}` }],
+          content: [{ type: "text", text: `Error: ${(error as Error).message}` }],
           isError: true,
         };
       }
@@ -207,7 +234,7 @@ Provide only the fields you want to update. The workflow ID is required.`,
     "delete_workflow",
     "Permanently delete a workflow. This action cannot be undone.",
     {
-      workflowId: z.string().describe("ID of workflow to delete"),
+      workflowId: z.string().describe("Workflow ID to delete"),
     },
     async ({ workflowId }) => {
       try {
@@ -226,9 +253,9 @@ Provide only the fields you want to update. The workflow ID is required.`,
 
   server.tool(
     "activate_workflow",
-    "Activate a workflow so it can be triggered. The workflow must have a valid trigger node (webhook, schedule, etc.).",
+    "Activate a workflow so it responds to triggers. The workflow must have a valid trigger node.",
     {
-      workflowId: z.string().describe("ID of workflow to activate"),
+      workflowId: z.string().describe("Workflow ID to activate"),
     },
     async ({ workflowId }) => {
       try {
@@ -236,12 +263,12 @@ Provide only the fields you want to update. The workflow ID is required.`,
         return {
           content: [{
             type: "text",
-            text: `Workflow ${workflowId} activated successfully!\nActive: ${workflow.active}`,
+            text: `Workflow ${workflowId} activated!\nActive: ${workflow.active}`,
           }],
         };
       } catch (error) {
         return {
-          content: [{ type: "text", text: `Error activating workflow: ${(error as Error).message}` }],
+          content: [{ type: "text", text: `Error: ${(error as Error).message}` }],
           isError: true,
         };
       }
@@ -250,9 +277,9 @@ Provide only the fields you want to update. The workflow ID is required.`,
 
   server.tool(
     "deactivate_workflow",
-    "Deactivate a running workflow. It will no longer respond to triggers.",
+    "Deactivate a workflow so it no longer responds to triggers.",
     {
-      workflowId: z.string().describe("ID of workflow to deactivate"),
+      workflowId: z.string().describe("Workflow ID to deactivate"),
     },
     async ({ workflowId }) => {
       try {
@@ -260,12 +287,12 @@ Provide only the fields you want to update. The workflow ID is required.`,
         return {
           content: [{
             type: "text",
-            text: `Workflow ${workflowId} deactivated successfully!\nActive: ${workflow.active}`,
+            text: `Workflow ${workflowId} deactivated!\nActive: ${workflow.active}`,
           }],
         };
       } catch (error) {
         return {
-          content: [{ type: "text", text: `Error deactivating workflow: ${(error as Error).message}` }],
+          content: [{ type: "text", text: `Error: ${(error as Error).message}` }],
           isError: true,
         };
       }
@@ -279,8 +306,8 @@ Provide only the fields you want to update. The workflow ID is required.`,
     "List workflow executions. Filter by workflow ID or status.",
     {
       workflowId: z.string().optional().describe("Filter by workflow ID"),
-      status: z.enum(["success", "error", "running", "waiting"]).optional().describe("Filter by execution status"),
-      limit: z.number().int().min(1).max(100).default(25).describe("Maximum results"),
+      status: z.enum(["success", "error", "waiting"]).optional().describe("Filter by status"),
+      limit: z.number().int().min(1).max(250).default(25).describe("Maximum results"),
     },
     async ({ workflowId, status, limit }) => {
       try {
@@ -299,7 +326,7 @@ Provide only the fields you want to update. The workflow ID is required.`,
 
   server.tool(
     "get_execution",
-    "Retrieve detailed information about a specific execution including input/output data for each node.",
+    "Retrieve detailed information about a specific execution.",
     {
       executionId: z.string().describe("The execution ID"),
     },
@@ -319,20 +346,16 @@ Provide only the fields you want to update. The workflow ID is required.`,
   );
 
   server.tool(
-    "retry_execution",
-    "Retry a failed execution. Optionally use the current (latest) workflow version instead of the version that was used originally.",
+    "delete_execution",
+    "Delete an execution record.",
     {
-      executionId: z.string().describe("ID of the failed execution to retry"),
-      loadWorkflow: z.boolean().default(false).describe("If true, use latest workflow version; if false, use original"),
+      executionId: z.string().describe("The execution ID to delete"),
     },
-    async ({ executionId, loadWorkflow }) => {
+    async ({ executionId }) => {
       try {
-        const execution = await n8nClient.retryExecution(executionId, loadWorkflow);
+        await n8nClient.deleteExecution(executionId);
         return {
-          content: [{
-            type: "text",
-            text: `Execution retried successfully!\nNew execution ID: ${execution.id}\nStatus: ${execution.status}`,
-          }],
+          content: [{ type: "text", text: `Execution ${executionId} deleted.` }],
         };
       } catch (error) {
         return {
@@ -344,38 +367,20 @@ Provide only the fields you want to update. The workflow ID is required.`,
   );
 
   server.tool(
-    "run_workflow",
-    "Execute a workflow directly by ID (manual trigger). Returns the execution result. Use this to test workflows.",
-    {
-      workflowId: z.string().describe("ID of the workflow to execute"),
-      inputData: z.record(z.unknown()).optional().describe("Input data to pass to the workflow (available as $input in first node)"),
-    },
-    async ({ workflowId, inputData }) => {
-      try {
-        const execution = await n8nClient.runWorkflow(workflowId, inputData);
-        return {
-          content: [{
-            type: "text",
-            text: `Workflow executed!\n\nExecution ID: ${execution.id}\nStatus: ${execution.status}\nFinished: ${execution.finished}\n\nFull result:\n${JSON.stringify(execution, null, 2)}`,
-          }],
-        };
-      } catch (error) {
-        return {
-          content: [{ type: "text", text: `Error executing workflow: ${(error as Error).message}` }],
-          isError: true,
-        };
-      }
-    }
-  );
-
-  server.tool(
     "execute_webhook",
-    "Trigger a workflow via its webhook endpoint. The workflow must have a Webhook trigger node and be active.",
+    `Trigger a workflow via its webhook endpoint.
+
+REQUIREMENTS:
+- Workflow must have a Webhook trigger node
+- Workflow must be ACTIVE
+- Use the webhook path from the Webhook node configuration
+
+The webhook URL format is: {n8n_base_url}/webhook/{path}`,
     {
-      webhookPath: z.string().describe("Webhook path from the webhook node (e.g., 'my-webhook' triggers /webhook/my-webhook)"),
-      data: z.record(z.unknown()).default({}).describe("JSON data to send in the POST body"),
-      username: z.string().optional().describe("Basic auth username (if webhook is protected)"),
-      password: z.string().optional().describe("Basic auth password (if webhook is protected)"),
+      webhookPath: z.string().describe("Webhook path (e.g., 'my-webhook' for /webhook/my-webhook)"),
+      data: z.record(z.unknown()).default({}).describe("JSON data to POST to the webhook"),
+      username: z.string().optional().describe("Basic auth username (if protected)"),
+      password: z.string().optional().describe("Basic auth password (if protected)"),
     },
     async ({ webhookPath, data, username, password }) => {
       try {
@@ -384,12 +389,12 @@ Provide only the fields you want to update. The workflow ID is required.`,
         return {
           content: [{
             type: "text",
-            text: `Webhook executed successfully!\n\nResponse:\n${JSON.stringify(result, null, 2)}`,
+            text: `Webhook executed!\n\nResponse:\n${JSON.stringify(result, null, 2)}`,
           }],
         };
       } catch (error) {
         return {
-          content: [{ type: "text", text: `Error executing webhook: ${(error as Error).message}` }],
+          content: [{ type: "text", text: `Error: ${(error as Error).message}` }],
           isError: true,
         };
       }
@@ -400,7 +405,7 @@ Provide only the fields you want to update. The workflow ID is required.`,
 
   server.tool(
     "list_tags",
-    "List all tags available for organizing workflows.",
+    "List all tags for organizing workflows.",
     {},
     async () => {
       try {
@@ -421,16 +426,13 @@ Provide only the fields you want to update. The workflow ID is required.`,
     "create_tag",
     "Create a new tag for organizing workflows.",
     {
-      name: z.string().describe("Name for the new tag"),
+      name: z.string().describe("Tag name"),
     },
     async ({ name }) => {
       try {
         const tag = await n8nClient.createTag(name);
         return {
-          content: [{
-            type: "text",
-            text: `Tag created!\n\nID: ${tag.id}\nName: ${tag.name}`,
-          }],
+          content: [{ type: "text", text: `Tag created: ${tag.id} - ${tag.name}` }],
         };
       } catch (error) {
         return {
@@ -443,7 +445,7 @@ Provide only the fields you want to update. The workflow ID is required.`,
 
   server.tool(
     "list_credentials",
-    "List all credentials configured in n8n. Returns names and types only (not secrets).",
+    "List all credentials (names and types only, not secrets).",
     {},
     async () => {
       try {
@@ -462,9 +464,9 @@ Provide only the fields you want to update. The workflow ID is required.`,
 
   server.tool(
     "get_credential_schema",
-    "Get the parameter schema for a credential type. Useful for understanding what fields are required.",
+    "Get the parameter schema for a credential type.",
     {
-      credentialType: z.string().describe("Credential type name (e.g., 'slackApi', 'githubApi', 'httpBasicAuth', 'openAiApi')"),
+      credentialType: z.string().describe("Credential type (e.g., 'githubApi', 'slackOAuth2Api')"),
     },
     async ({ credentialType }) => {
       try {
@@ -483,7 +485,7 @@ Provide only the fields you want to update. The workflow ID is required.`,
 
   server.tool(
     "list_variables",
-    "List environment variables configured in n8n (requires Pro/Enterprise license).",
+    "List environment variables (Pro/Enterprise feature).",
     {},
     async () => {
       try {
@@ -502,9 +504,9 @@ Provide only the fields you want to update. The workflow ID is required.`,
 
   server.tool(
     "run_audit",
-    "Run a security audit on the n8n instance. Returns findings and recommendations.",
+    "Run a security audit on the n8n instance.",
     {
-      categories: z.array(z.string()).optional().describe("Audit categories to include (omit for all)"),
+      categories: z.array(z.enum(["credentials", "database", "nodes", "filesystem", "instance"])).optional().describe("Audit categories"),
     },
     async ({ categories }) => {
       try {
