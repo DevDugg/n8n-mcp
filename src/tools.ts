@@ -1,6 +1,18 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { N8nClient } from "./n8n-client.js";
+import {
+  NODE_CATALOG,
+  WORKFLOW_TEMPLATES,
+  EXPRESSION_REFERENCE,
+  getNodeByType,
+  getAllNodeTypes,
+  getNodesByCategory,
+  searchNodes,
+  getWorkflowTemplate,
+  getAllWorkflowTemplates,
+  type NodeSchema,
+} from "./node-catalog.js";
 
 // ============ SCHEMAS MATCHING n8n OpenAPI SPEC ============
 
@@ -513,6 +525,262 @@ The webhook URL format is: {n8n_base_url}/webhook/{path}`,
         const result = await n8nClient.runAudit(categories);
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (error) {
+        return {
+          content: [{ type: "text", text: `Error: ${(error as Error).message}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // ============ NODE INTELLIGENCE TOOLS ============
+
+  server.tool(
+    "get_node_types",
+    `List all known n8n node types with their descriptions.
+
+This MCP server includes a built-in catalog of common nodes with full parameter schemas.
+Use this to discover available nodes and understand what they do.
+
+Filter by category:
+- trigger: Nodes that start workflows (Manual, Schedule, Webhook)
+- core: Essential utility nodes (HTTP Request, Code)
+- action: Service integrations (Slack, Gmail, Google Sheets)
+- data: Data transformation nodes (Set, Filter, Sort, Aggregate)
+- flow: Flow control nodes (IF, Switch, Merge, Split In Batches)
+- ai: AI/LLM nodes (OpenAI)`,
+    {
+      category: z.enum(["trigger", "core", "action", "data", "flow", "ai"]).optional().describe("Filter by category"),
+    },
+    async ({ category }) => {
+      try {
+        const nodes = category ? getNodesByCategory(category) : Object.values(NODE_CATALOG);
+        const summary = nodes.map((n: NodeSchema) => ({
+          type: n.type,
+          displayName: n.displayName,
+          category: n.category,
+          description: n.description,
+          hasCredentials: !!n.credentials?.length,
+        }));
+
+        return {
+          content: [{
+            type: "text",
+            text: `Found ${nodes.length} node types${category ? ` in category '${category}'` : ""}:\n\n${JSON.stringify(summary, null, 2)}\n\nUse get_node_schema tool to get full parameter details for a specific node.`,
+          }],
+        };
+      } catch (error) {
+        return {
+          content: [{ type: "text", text: `Error: ${(error as Error).message}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  server.tool(
+    "get_node_schema",
+    `Get the complete parameter schema for a specific node type.
+
+Returns:
+- All parameters with types, descriptions, and defaults
+- Required credentials
+- Working examples with real configurations
+
+This is essential for creating workflows with correctly configured nodes.`,
+    {
+      nodeType: z.string().describe("Node type (e.g., 'n8n-nodes-base.httpRequest')"),
+    },
+    async ({ nodeType }) => {
+      try {
+        const schema = getNodeByType(nodeType);
+
+        if (!schema) {
+          const allTypes = getAllNodeTypes();
+          const suggestions = allTypes.filter(t =>
+            t.toLowerCase().includes(nodeType.toLowerCase().replace("n8n-nodes-base.", ""))
+          );
+
+          return {
+            content: [{
+              type: "text",
+              text: `Node type '${nodeType}' not found in catalog.\n\nDid you mean one of these?\n${suggestions.slice(0, 5).map(s => `  - ${s}`).join("\n")}\n\nUse get_node_types to see all available nodes.`,
+            }],
+          };
+        }
+
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify(schema, null, 2),
+          }],
+        };
+      } catch (error) {
+        return {
+          content: [{ type: "text", text: `Error: ${(error as Error).message}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  server.tool(
+    "search_nodes",
+    "Search for nodes by name or description. Useful when you don't know the exact node type.",
+    {
+      query: z.string().describe("Search query (e.g., 'email', 'http', 'conditional')"),
+    },
+    async ({ query }) => {
+      try {
+        const results = searchNodes(query);
+
+        if (results.length === 0) {
+          return {
+            content: [{
+              type: "text",
+              text: `No nodes found matching '${query}'.\n\nTry searching for: http, email, conditional, transform, api, slack, sheets, code`,
+            }],
+          };
+        }
+
+        const summary = results.map((n: NodeSchema) => ({
+          type: n.type,
+          displayName: n.displayName,
+          category: n.category,
+          description: n.description,
+        }));
+
+        return {
+          content: [{
+            type: "text",
+            text: `Found ${results.length} nodes matching '${query}':\n\n${JSON.stringify(summary, null, 2)}`,
+          }],
+        };
+      } catch (error) {
+        return {
+          content: [{ type: "text", text: `Error: ${(error as Error).message}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  server.tool(
+    "get_workflow_templates",
+    "List available workflow templates. Templates provide pre-built workflow patterns for common use cases.",
+    {},
+    async () => {
+      try {
+        const templates = getAllWorkflowTemplates();
+        const summary = templates.map(name => {
+          const template = WORKFLOW_TEMPLATES[name];
+          return {
+            name,
+            displayName: template.name,
+            description: template.description,
+            nodeCount: template.nodes.length,
+          };
+        });
+
+        return {
+          content: [{
+            type: "text",
+            text: `Available workflow templates:\n\n${JSON.stringify(summary, null, 2)}\n\nUse get_workflow_template to get the full template.`,
+          }],
+        };
+      } catch (error) {
+        return {
+          content: [{ type: "text", text: `Error: ${(error as Error).message}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  server.tool(
+    "get_workflow_template",
+    `Get a complete workflow template that can be used with create_workflow.
+
+Templates include:
+- Pre-configured nodes with working parameters
+- Proper connections between nodes
+- Realistic examples you can customize`,
+    {
+      templateName: z.string().describe("Template name (use get_workflow_templates to see available)"),
+    },
+    async ({ templateName }) => {
+      try {
+        const template = getWorkflowTemplate(templateName);
+
+        if (!template) {
+          const available = getAllWorkflowTemplates();
+          return {
+            content: [{
+              type: "text",
+              text: `Template '${templateName}' not found.\n\nAvailable templates:\n${available.map(t => `  - ${t}`).join("\n")}`,
+            }],
+          };
+        }
+
+        // Format the template for direct use with create_workflow
+        const workflowPayload = {
+          name: template.name,
+          nodes: template.nodes.map((n, idx) => ({
+            id: `template-${idx}`,
+            name: n.name,
+            type: n.type,
+            typeVersion: 1,
+            position: n.position,
+            parameters: n.parameters,
+          })),
+          connections: template.connections,
+          settings: { executionOrder: "v1" as const },
+        };
+
+        return {
+          content: [{
+            type: "text",
+            text: `Template: ${template.name}\n\nDescription: ${template.description}\n\nReady to use with create_workflow:\n\n${JSON.stringify(workflowPayload, null, 2)}`,
+          }],
+        };
+      } catch (error) {
+        return {
+          content: [{ type: "text", text: `Error: ${(error as Error).message}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  server.tool(
+    "get_expression_help",
+    `Get help with n8n expressions and data manipulation.
+
+n8n uses expressions in the format {{ expression }} to:
+- Access data from previous nodes
+- Transform and manipulate values
+- Reference environment variables
+- Use date/time functions`,
+    {
+      topic: z.enum(["basics", "variables", "methods", "examples", "all"]).default("all").describe("Specific topic to get help on"),
+    },
+    async ({ topic }) => {
+      try {
+        let output: Record<string, unknown>;
+
+        if (topic === "all") {
+          output = EXPRESSION_REFERENCE;
+        } else {
+          output = { [topic]: EXPRESSION_REFERENCE[topic as keyof typeof EXPRESSION_REFERENCE] };
+        }
+
+        return {
+          content: [{
+            type: "text",
+            text: `n8n Expression Reference${topic !== "all" ? ` - ${topic}` : ""}:\n\n${JSON.stringify(output, null, 2)}`,
+          }],
         };
       } catch (error) {
         return {
