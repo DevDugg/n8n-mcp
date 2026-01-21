@@ -774,9 +774,9 @@ return items.filter(item => item.json.status === 'active');`,
   "n8n-nodes-base.slack": {
     type: "n8n-nodes-base.slack",
     displayName: "Slack",
-    description: "Send messages and interact with Slack",
+    description: "Send messages, manage channels, files, reactions, and users in Slack",
     category: "action",
-    typeVersion: 2.2,
+    typeVersion: 2.4,
     inputs: ["main"],
     outputs: ["main"],
     parameters: [
@@ -787,12 +787,14 @@ return items.filter(item => item.json.status === 'active');`,
         default: "message",
         description: "Resource to operate on",
         options: [
-          { name: "Channel", value: "channel" },
-          { name: "Message", value: "message" },
-          { name: "Reaction", value: "reaction" },
-          { name: "Star", value: "star" },
-          { name: "File", value: "file" },
-          { name: "User", value: "user" },
+          { name: "Channel", value: "channel", description: "Manage Slack channels" },
+          { name: "File", value: "file", description: "Upload and manage files" },
+          { name: "Message", value: "message", description: "Send and manage messages" },
+          { name: "Reaction", value: "reaction", description: "Add/remove emoji reactions" },
+          { name: "Star", value: "star", description: "Star/unstar items" },
+          { name: "User", value: "user", description: "Get user information" },
+          { name: "User Group", value: "userGroup", description: "Manage user groups" },
+          { name: "User Profile", value: "userProfile", description: "Get/update user profiles" },
         ],
       },
       {
@@ -800,44 +802,239 @@ return items.filter(item => item.json.status === 'active');`,
         type: "options",
         required: true,
         default: "post",
-        description: "Operation to perform",
+        description: "Operation to perform. Available operations depend on resource selected.",
         options: [
-          { name: "Post", value: "post" },
-          { name: "Update", value: "update" },
-          { name: "Delete", value: "delete" },
+          // Channel operations (17)
+          { name: "Archive", value: "archive", description: "Archive a channel" },
+          { name: "Close", value: "close", description: "Close a DM or multi-person DM" },
+          { name: "Create", value: "create", description: "Create a new channel" },
+          { name: "Get", value: "get", description: "Get channel information" },
+          { name: "Get Many", value: "getAll", description: "Get many channels" },
+          { name: "History", value: "history", description: "Get channel message history" },
+          { name: "Invite", value: "invite", description: "Invite user to channel" },
+          { name: "Join", value: "join", description: "Join a channel" },
+          { name: "Kick", value: "kick", description: "Remove user from channel" },
+          { name: "Leave", value: "leave", description: "Leave a channel" },
+          { name: "Member", value: "member", description: "List channel members" },
+          { name: "Open", value: "open", description: "Open/resume a DM" },
+          { name: "Rename", value: "rename", description: "Rename a channel" },
+          { name: "Replies", value: "replies", description: "Get thread replies" },
+          { name: "Set Purpose", value: "setPurpose", description: "Set channel purpose" },
+          { name: "Set Topic", value: "setTopic", description: "Set channel topic" },
+          { name: "Unarchive", value: "unarchive", description: "Unarchive a channel" },
+          // Message operations (6)
+          { name: "Delete", value: "delete", description: "Delete a message" },
+          { name: "Get Permalink", value: "getPermalink", description: "Get message permalink" },
+          { name: "Post", value: "post", description: "Post a message" },
+          { name: "Search", value: "search", description: "Search messages" },
+          { name: "Update", value: "update", description: "Update a message" },
+          // Reaction operations
+          { name: "Add", value: "add", description: "Add reaction to message" },
+          { name: "Remove", value: "remove", description: "Remove reaction from message" },
+          // File operations
+          { name: "Upload", value: "upload", description: "Upload a file" },
+          // User operations
+          { name: "Get User", value: "getUser", description: "Get user by ID or email" },
+          { name: "Get Presence", value: "getPresence", description: "Get user presence" },
         ],
       },
       {
-        name: "channel",
+        name: "select",
+        type: "options",
+        required: false,
+        default: "channel",
+        description: "How to select the channel (for channel operations)",
+        options: [
+          { name: "By ID", value: "id", description: "Use channel ID" },
+          { name: "By Name", value: "name", description: "Use channel name (e.g., #general)" },
+          { name: "By URL", value: "url", description: "Use channel URL" },
+        ],
+      },
+      {
+        name: "channelId",
         type: "string",
-        required: true,
-        description: "Channel, private group, or IM channel to send message to. Can be ID or name like #general",
-        placeholder: "#general",
+        required: false,
+        description: "Channel ID. Use channel ID (C0123456) or name (#general)",
+        placeholder: "C0123456789 or #general",
+      },
+      {
+        name: "user",
+        type: "string",
+        required: false,
+        description: "User ID or email (for user operations)",
+        placeholder: "U0123456789 or user@example.com",
+      },
+      {
+        name: "messageType",
+        type: "options",
+        required: false,
+        default: "text",
+        description: "Type of message to send",
+        options: [
+          { name: "Simple Text", value: "text", description: "Plain text message with markdown" },
+          { name: "Blocks", value: "block", description: "Rich message using Block Kit" },
+          { name: "Attachments", value: "attachment", description: "Message with attachments (legacy)" },
+        ],
       },
       {
         name: "text",
         type: "string",
-        required: true,
-        description: "Message text. Supports Slack markdown and expressions.",
+        required: false,
+        description: "Message text. Supports Slack mrkdwn formatting: *bold*, _italic_, ~strikethrough~, `code`, ```code block```, <url|link text>",
         placeholder: "Hello from n8n!",
+      },
+      {
+        name: "blocksUi",
+        type: "fixedCollection",
+        required: false,
+        description: "Slack Block Kit blocks. Use Slack Block Kit Builder: https://app.slack.com/block-kit-builder",
+      },
+      {
+        name: "timestamp",
+        type: "string",
+        required: false,
+        description: "Message timestamp (ts) for update/delete operations",
+        placeholder: "1234567890.123456",
+      },
+      {
+        name: "otherOptions",
+        type: "collection",
+        required: false,
+        description: "Additional options: thread_ts (reply in thread), unfurl_links, unfurl_media, link_names, mrkdwn, reply_broadcast",
       },
     ],
     credentials: [
       {
         name: "slackApi",
         required: true,
-        description: "Slack API credentials (Bot Token)",
+        description: "Slack Bot Token (xoxb-) or User Token (xoxp-). Bot token recommended.",
+      },
+      {
+        name: "slackOAuth2Api",
+        required: false,
+        description: "Slack OAuth2 credentials for user token operations",
       },
     ],
     examples: [
       {
-        name: "Post Message",
-        description: "Send a message to a Slack channel",
+        name: "Post Simple Message",
+        description: "Send a text message to a channel",
         parameters: {
           resource: "message",
           operation: "post",
-          channel: "#notifications",
-          text: "🚀 New deployment successful!\n\n*Project:* {{ $json.projectName }}\n*Version:* {{ $json.version }}",
+          select: "name",
+          channelId: "#general",
+          messageType: "text",
+          text: "Hello from n8n! :wave:",
+        },
+      },
+      {
+        name: "Post Formatted Message",
+        description: "Send a message with Slack markdown formatting",
+        parameters: {
+          resource: "message",
+          operation: "post",
+          select: "name",
+          channelId: "#notifications",
+          messageType: "text",
+          text: "*Deployment Complete* :rocket:\n\n*Project:* {{ $json.projectName }}\n*Version:* `{{ $json.version }}`\n*Environment:* {{ $json.env }}\n\n<{{ $json.url }}|View Deployment>",
+        },
+      },
+      {
+        name: "Reply in Thread",
+        description: "Reply to a message in a thread",
+        parameters: {
+          resource: "message",
+          operation: "post",
+          select: "id",
+          channelId: "={{ $json.channel }}",
+          messageType: "text",
+          text: "This is a threaded reply",
+          otherOptions: {
+            thread_ts: "={{ $json.ts }}",
+          },
+        },
+      },
+      {
+        name: "Update Message",
+        description: "Update an existing message",
+        parameters: {
+          resource: "message",
+          operation: "update",
+          select: "id",
+          channelId: "={{ $json.channel }}",
+          timestamp: "={{ $json.ts }}",
+          text: "Updated message content :pencil:",
+        },
+      },
+      {
+        name: "Get Channel Members",
+        description: "List all members of a channel",
+        parameters: {
+          resource: "channel",
+          operation: "member",
+          select: "name",
+          channelId: "#general",
+        },
+      },
+      {
+        name: "Create Channel",
+        description: "Create a new public channel",
+        parameters: {
+          resource: "channel",
+          operation: "create",
+          channelId: "new-project-channel",
+          additionalFields: {
+            isPrivate: false,
+          },
+        },
+      },
+      {
+        name: "Add Reaction",
+        description: "Add an emoji reaction to a message",
+        parameters: {
+          resource: "reaction",
+          operation: "add",
+          select: "id",
+          channelId: "={{ $json.channel }}",
+          timestamp: "={{ $json.ts }}",
+          emojiCode: "thumbsup",
+        },
+      },
+      {
+        name: "Upload File",
+        description: "Upload a file to a channel",
+        parameters: {
+          resource: "file",
+          operation: "upload",
+          channelId: "#files",
+          binaryPropertyName: "data",
+          options: {
+            fileName: "report.pdf",
+            initialComment: "Here's the latest report",
+          },
+        },
+      },
+      {
+        name: "Get User Info",
+        description: "Get information about a user",
+        parameters: {
+          resource: "user",
+          operation: "getUser",
+          user: "={{ $json.user_id }}",
+        },
+      },
+      {
+        name: "Search Messages",
+        description: "Search for messages containing specific text",
+        parameters: {
+          resource: "message",
+          operation: "search",
+          query: "from:@user in:#channel keyword",
+          options: {
+            sort: "timestamp",
+            sortDirection: "desc",
+          },
         },
       },
     ],
@@ -846,7 +1043,7 @@ return items.filter(item => item.json.status === 'active');`,
   "n8n-nodes-base.gmail": {
     type: "n8n-nodes-base.gmail",
     displayName: "Gmail",
-    description: "Send and manage emails via Gmail",
+    description: "Send, receive, and manage emails, drafts, labels, and threads via Gmail",
     category: "action",
     typeVersion: 2.1,
     inputs: ["main"],
@@ -859,10 +1056,10 @@ return items.filter(item => item.json.status === 'active');`,
         default: "message",
         description: "Resource to operate on",
         options: [
-          { name: "Message", value: "message" },
-          { name: "Draft", value: "draft" },
-          { name: "Label", value: "label" },
-          { name: "Thread", value: "thread" },
+          { name: "Draft", value: "draft", description: "Create and manage email drafts" },
+          { name: "Label", value: "label", description: "Create and manage Gmail labels" },
+          { name: "Message", value: "message", description: "Send, get, and manage emails" },
+          { name: "Thread", value: "thread", description: "Manage email threads/conversations" },
         ],
       },
       {
@@ -870,52 +1067,255 @@ return items.filter(item => item.json.status === 'active');`,
         type: "options",
         required: true,
         default: "send",
-        description: "Operation to perform",
+        description: "Operation to perform. Available operations depend on resource.",
         options: [
-          { name: "Send", value: "send" },
-          { name: "Reply", value: "reply" },
-          { name: "Get", value: "get" },
-          { name: "Get Many", value: "getAll" },
-          { name: "Delete", value: "delete" },
+          // Message operations
+          { name: "Send", value: "send", description: "Send a new email (Message resource)" },
+          { name: "Reply", value: "reply", description: "Reply to an email (Message resource)" },
+          { name: "Get", value: "get", description: "Get a specific email (Message resource)" },
+          { name: "Get Many", value: "getAll", description: "Get multiple emails (Message resource)" },
+          { name: "Delete", value: "delete", description: "Delete an email (Message resource)" },
+          { name: "Mark as Read", value: "markAsRead", description: "Mark email as read (Message resource)" },
+          { name: "Mark as Unread", value: "markAsUnread", description: "Mark email as unread (Message resource)" },
+          { name: "Add Labels", value: "addLabels", description: "Add labels to email (Message resource)" },
+          { name: "Remove Labels", value: "removeLabels", description: "Remove labels from email (Message resource)" },
+          // Draft operations
+          { name: "Create", value: "create", description: "Create a draft (Draft resource)" },
+          // Label operations (uses create, delete, get, getAll)
+          // Thread operations
+          { name: "Trash", value: "trash", description: "Move thread to trash (Thread resource)" },
+          { name: "Untrash", value: "untrash", description: "Remove thread from trash (Thread resource)" },
         ],
       },
       {
         name: "sendTo",
         type: "string",
-        required: true,
-        description: "Email address of recipient",
-        placeholder: "recipient@example.com",
+        required: false,
+        description: "Email recipient(s). Separate multiple addresses with commas.",
+        placeholder: "recipient@example.com, another@example.com",
       },
       {
         name: "subject",
         type: "string",
-        required: true,
+        required: false,
         description: "Email subject line",
+        placeholder: "Hello from n8n",
       },
       {
         name: "message",
         type: "string",
-        required: true,
-        description: "Email body content",
+        required: false,
+        description: "Email body content. Can be plain text or HTML.",
+        placeholder: "Your message content here",
+      },
+      {
+        name: "emailType",
+        type: "options",
+        required: false,
+        default: "text",
+        description: "Email body format",
+        options: [
+          { name: "Text", value: "text", description: "Plain text email" },
+          { name: "HTML", value: "html", description: "HTML formatted email" },
+        ],
+      },
+      {
+        name: "messageId",
+        type: "string",
+        required: false,
+        description: "Message ID for get, delete, reply, or label operations",
+        placeholder: "18a1b2c3d4e5f6g7",
+      },
+      {
+        name: "threadId",
+        type: "string",
+        required: false,
+        description: "Thread ID for thread operations",
+      },
+      {
+        name: "labelIds",
+        type: "string",
+        required: false,
+        description: "Label IDs to add/remove. Comma-separated for multiple.",
+        placeholder: "Label_1, Label_2",
+      },
+      {
+        name: "filters",
+        type: "collection",
+        required: false,
+        description: "Search filters for getAll: q (Gmail search query), labelIds, includeSpamTrash, maxResults",
+      },
+      {
+        name: "options",
+        type: "collection",
+        required: false,
+        description: "Additional options: cc, bcc, replyTo, attachments, senderName",
       },
     ],
     credentials: [
       {
         name: "gmailOAuth2",
         required: true,
-        description: "Gmail OAuth2 credentials",
+        description: "Gmail OAuth2 credentials. Requires Gmail API scope.",
       },
     ],
     examples: [
       {
         name: "Send Email",
-        description: "Send an email via Gmail",
+        description: "Send a plain text email",
         parameters: {
           resource: "message",
           operation: "send",
           sendTo: "={{ $json.email }}",
           subject: "Order Confirmation #{{ $json.orderId }}",
           message: "Thank you for your order!\n\nOrder ID: {{ $json.orderId }}\nTotal: ${{ $json.total }}",
+          emailType: "text",
+        },
+      },
+      {
+        name: "Send HTML Email",
+        description: "Send a formatted HTML email",
+        parameters: {
+          resource: "message",
+          operation: "send",
+          sendTo: "={{ $json.email }}",
+          subject: "Welcome to Our Service",
+          message: `<html>
+<body>
+<h1>Welcome, {{ $json.name }}!</h1>
+<p>Thank you for signing up.</p>
+<a href="{{ $json.confirmUrl }}">Confirm your email</a>
+</body>
+</html>`,
+          emailType: "html",
+          options: {
+            senderName: "My Company",
+          },
+        },
+      },
+      {
+        name: "Send with Attachments",
+        description: "Send email with file attachments",
+        parameters: {
+          resource: "message",
+          operation: "send",
+          sendTo: "={{ $json.email }}",
+          subject: "Report Attached",
+          message: "Please find the report attached.",
+          options: {
+            attachmentsUi: {
+              attachmentsBinary: [
+                { property: "data" },
+              ],
+            },
+          },
+        },
+      },
+      {
+        name: "Reply to Email",
+        description: "Reply to an existing email thread",
+        parameters: {
+          resource: "message",
+          operation: "reply",
+          messageId: "={{ $json.messageId }}",
+          message: "Thank you for your message. We'll get back to you shortly.",
+        },
+      },
+      {
+        name: "Get Recent Emails",
+        description: "Get emails from inbox",
+        parameters: {
+          resource: "message",
+          operation: "getAll",
+          returnAll: false,
+          limit: 10,
+          filters: {
+            q: "is:unread",
+            labelIds: ["INBOX"],
+          },
+        },
+      },
+      {
+        name: "Search Emails",
+        description: "Search emails with Gmail query",
+        parameters: {
+          resource: "message",
+          operation: "getAll",
+          returnAll: false,
+          limit: 50,
+          filters: {
+            q: "from:notifications@github.com subject:pull request after:2024/01/01",
+          },
+        },
+      },
+      {
+        name: "Mark as Read",
+        description: "Mark an email as read",
+        parameters: {
+          resource: "message",
+          operation: "markAsRead",
+          messageId: "={{ $json.id }}",
+        },
+      },
+      {
+        name: "Add Label",
+        description: "Add a label to an email",
+        parameters: {
+          resource: "message",
+          operation: "addLabels",
+          messageId: "={{ $json.id }}",
+          labelIds: "Label_processed",
+        },
+      },
+      {
+        name: "Create Draft",
+        description: "Create a draft email",
+        parameters: {
+          resource: "draft",
+          operation: "create",
+          sendTo: "={{ $json.email }}",
+          subject: "Draft: {{ $json.subject }}",
+          message: "This is a draft message.",
+        },
+      },
+      {
+        name: "Get All Drafts",
+        description: "Get all draft emails",
+        parameters: {
+          resource: "draft",
+          operation: "getAll",
+          returnAll: true,
+        },
+      },
+      {
+        name: "Create Label",
+        description: "Create a new Gmail label",
+        parameters: {
+          resource: "label",
+          operation: "create",
+          name: "n8n-processed",
+          options: {
+            labelListVisibility: "labelShow",
+            messageListVisibility: "show",
+          },
+        },
+      },
+      {
+        name: "Get Thread",
+        description: "Get all messages in a thread",
+        parameters: {
+          resource: "thread",
+          operation: "get",
+          threadId: "={{ $json.threadId }}",
+        },
+      },
+      {
+        name: "Trash Thread",
+        description: "Move entire thread to trash",
+        parameters: {
+          resource: "thread",
+          operation: "trash",
+          threadId: "={{ $json.threadId }}",
         },
       },
     ],
@@ -924,12 +1324,23 @@ return items.filter(item => item.json.status === 'active');`,
   "n8n-nodes-base.googleSheets": {
     type: "n8n-nodes-base.googleSheets",
     displayName: "Google Sheets",
-    description: "Read and write data to Google Sheets",
+    description: "Read, write, update, and manage data in Google Sheets spreadsheets",
     category: "action",
     typeVersion: 4.5,
     inputs: ["main"],
     outputs: ["main"],
     parameters: [
+      {
+        name: "resource",
+        type: "options",
+        required: true,
+        default: "sheet",
+        description: "Resource to operate on",
+        options: [
+          { name: "Document", value: "document", description: "Create or delete spreadsheets" },
+          { name: "Sheet Within Document", value: "sheet", description: "Row and sheet operations" },
+        ],
+      },
       {
         name: "operation",
         type: "options",
@@ -937,27 +1348,64 @@ return items.filter(item => item.json.status === 'active');`,
         default: "read",
         description: "Operation to perform",
         options: [
-          { name: "Append Row", value: "append" },
-          { name: "Clear", value: "clear" },
-          { name: "Create", value: "create" },
-          { name: "Delete", value: "delete" },
-          { name: "Read Rows", value: "read" },
-          { name: "Update Row", value: "update" },
+          // Document operations
+          { name: "Create Spreadsheet", value: "create", description: "Create a new spreadsheet" },
+          { name: "Delete Spreadsheet", value: "deleteSpreadsheet", description: "Delete a spreadsheet" },
+          // Sheet/Row operations
+          { name: "Append Row", value: "append", description: "Append a new row at the end" },
+          { name: "Append or Update Row", value: "appendOrUpdate", description: "Append or update row based on matching column" },
+          { name: "Clear Sheet", value: "clear", description: "Clear all data from sheet" },
+          { name: "Create Sheet", value: "createSheet", description: "Create a new sheet within spreadsheet" },
+          { name: "Delete Row", value: "delete", description: "Delete rows by row number" },
+          { name: "Delete Sheet", value: "deleteSheet", description: "Delete a sheet from spreadsheet" },
+          { name: "Get Many Rows", value: "read", description: "Read multiple rows from sheet" },
+          { name: "Update Row", value: "update", description: "Update an existing row" },
         ],
       },
       {
         name: "documentId",
         type: "string",
         required: true,
-        description: "Google Sheet document ID (from URL)",
+        description: "Google Sheet document ID. Find in URL: docs.google.com/spreadsheets/d/{documentId}/edit",
         placeholder: "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms",
       },
       {
         name: "sheetName",
         type: "string",
         required: true,
-        description: "Sheet name or gid",
+        description: "Sheet name (tab name) or gid number. Use 'gid=0' for first sheet.",
         placeholder: "Sheet1",
+      },
+      {
+        name: "columns",
+        type: "fixedCollection",
+        required: false,
+        description: "Column values to write. Can use 'mappingMode' to auto-map from input or define manually.",
+      },
+      {
+        name: "dataMode",
+        type: "options",
+        required: false,
+        default: "autoMapInputData",
+        description: "How to map input data to columns",
+        options: [
+          { name: "Auto-Map Input Data", value: "autoMapInputData", description: "Automatically map input fields to columns with matching headers" },
+          { name: "Map Each Column Manually", value: "defineBelow", description: "Manually define each column value" },
+          { name: "Raw Data", value: "raw", description: "Send data as raw array of arrays" },
+        ],
+      },
+      {
+        name: "matchingColumns",
+        type: "string",
+        required: false,
+        description: "Column name(s) to match for update operations. Comma-separated for multiple columns.",
+        placeholder: "Email",
+      },
+      {
+        name: "options",
+        type: "collection",
+        required: false,
+        description: "Additional options: headerRow, range, valueInputOption, valueRenderOption, dateTimeRenderOption",
       },
     ],
     credentials: [
@@ -966,21 +1414,43 @@ return items.filter(item => item.json.status === 'active');`,
         required: true,
         description: "Google Sheets OAuth2 credentials",
       },
+      {
+        name: "serviceAccountCredentials",
+        required: false,
+        description: "Google Service Account credentials (alternative to OAuth2)",
+      },
     ],
     examples: [
       {
-        name: "Append Row",
-        description: "Add a new row to the sheet",
+        name: "Append Row (Auto-Map)",
+        description: "Append a row, auto-mapping input fields to sheet columns",
         parameters: {
+          resource: "sheet",
           operation: "append",
           documentId: "your-sheet-id",
           sheetName: "Sheet1",
+          dataMode: "autoMapInputData",
+          options: {
+            headerRow: 1,
+          },
+        },
+      },
+      {
+        name: "Append Row (Manual)",
+        description: "Append a row with manually defined column values",
+        parameters: {
+          resource: "sheet",
+          operation: "append",
+          documentId: "your-sheet-id",
+          sheetName: "Sheet1",
+          dataMode: "defineBelow",
           columns: {
             mappingMode: "defineBelow",
-            value: {
+            values: {
               Name: "={{ $json.name }}",
               Email: "={{ $json.email }}",
-              Date: "={{ $now.toISODate() }}",
+              "Created At": "={{ $now.toISODate() }}",
+              Status: "New",
             },
           },
         },
@@ -989,9 +1459,88 @@ return items.filter(item => item.json.status === 'active');`,
         name: "Read All Rows",
         description: "Read all rows from a sheet",
         parameters: {
+          resource: "sheet",
           operation: "read",
           documentId: "your-sheet-id",
           sheetName: "Sheet1",
+          options: {
+            headerRow: 1,
+          },
+        },
+      },
+      {
+        name: "Read Specific Range",
+        description: "Read rows from a specific range",
+        parameters: {
+          resource: "sheet",
+          operation: "read",
+          documentId: "your-sheet-id",
+          sheetName: "Sheet1",
+          options: {
+            range: "A2:D100",
+            headerRow: 1,
+          },
+        },
+      },
+      {
+        name: "Update Row by Matching Column",
+        description: "Update row where Email column matches",
+        parameters: {
+          resource: "sheet",
+          operation: "update",
+          documentId: "your-sheet-id",
+          sheetName: "Sheet1",
+          matchingColumns: "Email",
+          dataMode: "autoMapInputData",
+        },
+      },
+      {
+        name: "Append or Update",
+        description: "Append new row or update if exists (based on Email)",
+        parameters: {
+          resource: "sheet",
+          operation: "appendOrUpdate",
+          documentId: "your-sheet-id",
+          sheetName: "Sheet1",
+          matchingColumns: "Email",
+          dataMode: "autoMapInputData",
+        },
+      },
+      {
+        name: "Create New Spreadsheet",
+        description: "Create a new Google Spreadsheet",
+        parameters: {
+          resource: "document",
+          operation: "create",
+          title: "={{ 'Report - ' + $now.toISODate() }}",
+          options: {
+            sheetNames: "Data, Summary",
+          },
+        },
+      },
+      {
+        name: "Clear Sheet",
+        description: "Clear all data from a sheet (keeps headers)",
+        parameters: {
+          resource: "sheet",
+          operation: "clear",
+          documentId: "your-sheet-id",
+          sheetName: "Sheet1",
+          options: {
+            startRowNumber: 2,
+          },
+        },
+      },
+      {
+        name: "Delete Rows",
+        description: "Delete specific row numbers",
+        parameters: {
+          resource: "sheet",
+          operation: "delete",
+          documentId: "your-sheet-id",
+          sheetName: "Sheet1",
+          startRowNumber: 5,
+          numberOfRows: 3,
         },
       },
     ],
@@ -1120,6 +1669,1123 @@ return items.filter(item => item.json.status === 'active');`,
         parameters: {
           operation: "executeQuery",
           query: "SELECT * FROM users WHERE status = 'active' LIMIT 100",
+        },
+      },
+    ],
+  },
+
+  // ============ AIRTABLE NODE ============
+
+  "n8n-nodes-base.airtable": {
+    type: "n8n-nodes-base.airtable",
+    displayName: "Airtable",
+    description: "Read, create, update, delete, and search records in Airtable bases",
+    category: "action",
+    typeVersion: 2.1,
+    inputs: ["main"],
+    outputs: ["main"],
+    parameters: [
+      {
+        name: "resource",
+        type: "options",
+        required: true,
+        default: "record",
+        description: "Resource to operate on",
+        options: [
+          { name: "Record", value: "record", description: "CRUD operations on table records" },
+        ],
+      },
+      {
+        name: "operation",
+        type: "options",
+        required: true,
+        default: "create",
+        description: "Operation to perform",
+        options: [
+          { name: "Create", value: "create", description: "Create a new record" },
+          { name: "Create or Update", value: "upsert", description: "Create or update record based on field match" },
+          { name: "Delete", value: "delete", description: "Delete a record" },
+          { name: "Get", value: "get", description: "Get a record by ID" },
+          { name: "Search", value: "search", description: "Search records with filters or get all" },
+          { name: "Update", value: "update", description: "Update an existing record" },
+        ],
+      },
+      {
+        name: "base",
+        type: "string",
+        required: true,
+        description: "Airtable Base ID. Find in URL: airtable.com/{baseId}/... or use resourceLocator",
+        placeholder: "appXXXXXXXXXXXXXX",
+      },
+      {
+        name: "table",
+        type: "string",
+        required: true,
+        description: "Table name or ID within the base",
+        placeholder: "Table 1 or tblXXXXXXXXXXXXXX",
+      },
+      {
+        name: "id",
+        type: "string",
+        required: false,
+        description: "Record ID for get, update, delete operations",
+        placeholder: "recXXXXXXXXXXXXXX",
+      },
+      {
+        name: "columns",
+        type: "fixedCollection",
+        required: false,
+        description: "Field values to set. Map input data to Airtable columns.",
+      },
+      {
+        name: "options",
+        type: "collection",
+        required: false,
+        description: "Additional options: typecast (auto-convert values), bulkSize, returnAll, limit, filterByFormula, sort, view",
+      },
+    ],
+    credentials: [
+      {
+        name: "airtableTokenApi",
+        required: true,
+        description: "Airtable Personal Access Token. Create at airtable.com/create/tokens",
+      },
+      {
+        name: "airtableOAuth2Api",
+        required: false,
+        description: "Airtable OAuth2 credentials (alternative)",
+      },
+    ],
+    examples: [
+      {
+        name: "Create Record",
+        description: "Create a new record in a table",
+        parameters: {
+          resource: "record",
+          operation: "create",
+          base: "appXXXXXXXXXXXXXX",
+          table: "Contacts",
+          columns: {
+            fieldValues: {
+              Name: "={{ $json.name }}",
+              Email: "={{ $json.email }}",
+              Phone: "={{ $json.phone }}",
+              Status: "Active",
+            },
+          },
+          options: {
+            typecast: true,
+          },
+        },
+      },
+      {
+        name: "Get All Records",
+        description: "Get all records from a table",
+        parameters: {
+          resource: "record",
+          operation: "search",
+          base: "appXXXXXXXXXXXXXX",
+          table: "Contacts",
+          returnAll: true,
+        },
+      },
+      {
+        name: "Search with Filter",
+        description: "Search records using Airtable formula",
+        parameters: {
+          resource: "record",
+          operation: "search",
+          base: "appXXXXXXXXXXXXXX",
+          table: "Contacts",
+          returnAll: false,
+          limit: 100,
+          options: {
+            filterByFormula: "{Status} = 'Active'",
+            sort: [
+              { field: "Created", direction: "desc" },
+            ],
+          },
+        },
+      },
+      {
+        name: "Search from View",
+        description: "Get records from a specific view",
+        parameters: {
+          resource: "record",
+          operation: "search",
+          base: "appXXXXXXXXXXXXXX",
+          table: "Contacts",
+          options: {
+            view: "Active Contacts",
+          },
+        },
+      },
+      {
+        name: "Get Record by ID",
+        description: "Get a single record by its ID",
+        parameters: {
+          resource: "record",
+          operation: "get",
+          base: "appXXXXXXXXXXXXXX",
+          table: "Contacts",
+          id: "={{ $json.airtable_id }}",
+        },
+      },
+      {
+        name: "Update Record",
+        description: "Update fields on an existing record",
+        parameters: {
+          resource: "record",
+          operation: "update",
+          base: "appXXXXXXXXXXXXXX",
+          table: "Contacts",
+          id: "={{ $json.id }}",
+          columns: {
+            fieldValues: {
+              Status: "Updated",
+              "Last Modified": "={{ $now.toISODate() }}",
+            },
+          },
+        },
+      },
+      {
+        name: "Upsert Record",
+        description: "Create or update based on Email field",
+        parameters: {
+          resource: "record",
+          operation: "upsert",
+          base: "appXXXXXXXXXXXXXX",
+          table: "Contacts",
+          columns: {
+            fieldValues: {
+              Name: "={{ $json.name }}",
+              Email: "={{ $json.email }}",
+              Phone: "={{ $json.phone }}",
+            },
+          },
+          options: {
+            fieldsToMergeOn: ["Email"],
+            typecast: true,
+          },
+        },
+      },
+      {
+        name: "Delete Record",
+        description: "Delete a record by ID",
+        parameters: {
+          resource: "record",
+          operation: "delete",
+          base: "appXXXXXXXXXXXXXX",
+          table: "Contacts",
+          id: "={{ $json.id }}",
+        },
+      },
+      {
+        name: "Bulk Create Records",
+        description: "Create multiple records efficiently",
+        parameters: {
+          resource: "record",
+          operation: "create",
+          base: "appXXXXXXXXXXXXXX",
+          table: "Contacts",
+          columns: {
+            fieldValues: {
+              Name: "={{ $json.name }}",
+              Email: "={{ $json.email }}",
+            },
+          },
+          options: {
+            bulkSize: 10,
+            typecast: true,
+          },
+        },
+      },
+    ],
+  },
+
+  // ============ DISCORD NODE ============
+
+  "n8n-nodes-base.discord": {
+    type: "n8n-nodes-base.discord",
+    displayName: "Discord",
+    description: "Send messages, manage channels, and interact with Discord servers",
+    category: "action",
+    typeVersion: 2,
+    inputs: ["main"],
+    outputs: ["main"],
+    parameters: [
+      {
+        name: "resource",
+        type: "options",
+        required: true,
+        default: "message",
+        description: "Resource to operate on",
+        options: [
+          { name: "Channel", value: "channel", description: "Manage Discord channels" },
+          { name: "Member", value: "member", description: "Manage server members" },
+          { name: "Message", value: "message", description: "Send and manage messages" },
+        ],
+      },
+      {
+        name: "operation",
+        type: "options",
+        required: true,
+        default: "send",
+        description: "Operation to perform",
+        options: [
+          // Message operations
+          { name: "Send", value: "send", description: "Send a message to a channel" },
+          { name: "Delete", value: "delete", description: "Delete a message" },
+          { name: "Get", value: "get", description: "Get message info" },
+          { name: "Get Many", value: "getAll", description: "Get multiple messages" },
+          // Channel operations
+          { name: "Create", value: "create", description: "Create a channel" },
+          { name: "Update", value: "update", description: "Update a channel" },
+          // Member operations
+          { name: "Get Member", value: "getMember", description: "Get member info" },
+          { name: "Role Add", value: "roleAdd", description: "Add role to member" },
+          { name: "Role Remove", value: "roleRemove", description: "Remove role from member" },
+        ],
+      },
+      {
+        name: "guildId",
+        type: "string",
+        required: false,
+        description: "Discord Server (Guild) ID. Right-click server > Copy ID (enable Developer Mode)",
+        placeholder: "123456789012345678",
+      },
+      {
+        name: "channelId",
+        type: "string",
+        required: false,
+        description: "Discord Channel ID. Right-click channel > Copy ID",
+        placeholder: "123456789012345678",
+      },
+      {
+        name: "content",
+        type: "string",
+        required: false,
+        description: "Message content. Supports Discord markdown and mentions.",
+        placeholder: "Hello from n8n!",
+      },
+      {
+        name: "messageId",
+        type: "string",
+        required: false,
+        description: "Message ID for get/delete operations",
+      },
+      {
+        name: "userId",
+        type: "string",
+        required: false,
+        description: "User ID for member operations",
+      },
+      {
+        name: "roleId",
+        type: "string",
+        required: false,
+        description: "Role ID for add/remove role operations",
+      },
+      {
+        name: "embeds",
+        type: "fixedCollection",
+        required: false,
+        description: "Rich embeds to include with the message (title, description, color, fields, footer, etc.)",
+      },
+      {
+        name: "options",
+        type: "collection",
+        required: false,
+        description: "Additional options: tts, files (attachments), flags",
+      },
+    ],
+    credentials: [
+      {
+        name: "discordBotApi",
+        required: true,
+        description: "Discord Bot Token. Create at discord.com/developers/applications",
+      },
+      {
+        name: "discordOAuth2Api",
+        required: false,
+        description: "Discord OAuth2 credentials",
+      },
+      {
+        name: "discordWebhookApi",
+        required: false,
+        description: "Discord Webhook URL (for simple message sending only)",
+      },
+    ],
+    examples: [
+      {
+        name: "Send Simple Message",
+        description: "Send a text message to a channel",
+        parameters: {
+          resource: "message",
+          operation: "send",
+          channelId: "123456789012345678",
+          content: "Hello from n8n! :wave:",
+        },
+      },
+      {
+        name: "Send Rich Embed",
+        description: "Send a message with rich embed",
+        parameters: {
+          resource: "message",
+          operation: "send",
+          channelId: "123456789012345678",
+          content: "",
+          embeds: {
+            values: [
+              {
+                title: "Deployment Complete",
+                description: "Your application has been deployed successfully.",
+                color: "00FF00",
+                fields: [
+                  { name: "Project", value: "={{ $json.project }}", inline: true },
+                  { name: "Version", value: "={{ $json.version }}", inline: true },
+                  { name: "Environment", value: "={{ $json.env }}", inline: true },
+                ],
+                footer: {
+                  text: "Deployed via n8n automation",
+                },
+                timestamp: "={{ $now.toISO() }}",
+              },
+            ],
+          },
+        },
+      },
+      {
+        name: "Send Alert Message",
+        description: "Send an alert with mention",
+        parameters: {
+          resource: "message",
+          operation: "send",
+          channelId: "123456789012345678",
+          content: "@here :warning: **Alert**: {{ $json.alertMessage }}",
+        },
+      },
+      {
+        name: "Send with Buttons",
+        description: "Send message with action buttons",
+        parameters: {
+          resource: "message",
+          operation: "send",
+          channelId: "123456789012345678",
+          content: "Please confirm your action:",
+          components: [
+            {
+              type: 1,
+              components: [
+                { type: 2, style: 3, label: "Confirm", custom_id: "confirm" },
+                { type: 2, style: 4, label: "Cancel", custom_id: "cancel" },
+              ],
+            },
+          ],
+        },
+      },
+      {
+        name: "Delete Message",
+        description: "Delete a specific message",
+        parameters: {
+          resource: "message",
+          operation: "delete",
+          channelId: "={{ $json.channel_id }}",
+          messageId: "={{ $json.message_id }}",
+        },
+      },
+      {
+        name: "Get Channel Messages",
+        description: "Get recent messages from a channel",
+        parameters: {
+          resource: "message",
+          operation: "getAll",
+          channelId: "123456789012345678",
+          returnAll: false,
+          limit: 50,
+        },
+      },
+      {
+        name: "Add Role to Member",
+        description: "Add a role to a server member",
+        parameters: {
+          resource: "member",
+          operation: "roleAdd",
+          guildId: "123456789012345678",
+          userId: "={{ $json.user_id }}",
+          roleId: "987654321098765432",
+        },
+      },
+      {
+        name: "Get Member Info",
+        description: "Get information about a server member",
+        parameters: {
+          resource: "member",
+          operation: "getMember",
+          guildId: "123456789012345678",
+          userId: "={{ $json.user_id }}",
+        },
+      },
+    ],
+  },
+
+  // ============ TELEGRAM NODES ============
+
+  "n8n-nodes-base.telegramTrigger": {
+    type: "n8n-nodes-base.telegramTrigger",
+    displayName: "Telegram Trigger",
+    description: "Starts workflow when a Telegram message is received. Create a bot via @BotFather first.",
+    category: "trigger",
+    typeVersion: 1.1,
+    inputs: [],
+    outputs: ["main"],
+    parameters: [
+      {
+        name: "updates",
+        type: "options",
+        required: true,
+        default: "message",
+        description: "Which updates to listen for",
+        options: [
+          { name: "Message", value: "message", description: "New incoming message" },
+          { name: "Edited Message", value: "edited_message", description: "Message was edited" },
+          { name: "Channel Post", value: "channel_post", description: "New channel post" },
+          { name: "Callback Query", value: "callback_query", description: "Inline button was pressed" },
+          { name: "Pre Checkout Query", value: "pre_checkout_query", description: "Payment pre-checkout" },
+          { name: "*", value: "*", description: "All updates" },
+        ],
+      },
+    ],
+    credentials: [
+      {
+        name: "telegramApi",
+        required: true,
+        description: "Telegram Bot API token from @BotFather",
+      },
+    ],
+    examples: [
+      {
+        name: "Listen for Messages",
+        description: "Trigger on any new message to the bot",
+        parameters: {
+          updates: ["message"],
+        },
+      },
+      {
+        name: "Listen for Button Clicks",
+        description: "Trigger when inline keyboard button is pressed",
+        parameters: {
+          updates: ["callback_query"],
+        },
+      },
+    ],
+  },
+
+  "n8n-nodes-base.telegram": {
+    type: "n8n-nodes-base.telegram",
+    displayName: "Telegram",
+    description: "Send messages, photos, files, manage chats, and interact with Telegram Bot API",
+    category: "action",
+    typeVersion: 1.2,
+    inputs: ["main"],
+    outputs: ["main"],
+    parameters: [
+      {
+        name: "resource",
+        type: "options",
+        required: true,
+        default: "message",
+        description: "Resource to operate on",
+        options: [
+          { name: "Chat", value: "chat", description: "Get chat info, members, or manage chat settings" },
+          { name: "Callback", value: "callback", description: "Answer callback queries from inline keyboards" },
+          { name: "File", value: "file", description: "Get file info for downloading" },
+          { name: "Message", value: "message", description: "Send, edit, delete, or pin messages" },
+        ],
+      },
+      {
+        name: "operation",
+        type: "options",
+        required: true,
+        default: "sendMessage",
+        description: "Operation to perform. Available operations depend on resource.",
+        options: [
+          // Chat operations
+          { name: "Get", value: "get", description: "Get chat information (Chat resource)" },
+          { name: "Get Administrators", value: "getAdministrators", description: "Get list of chat admins (Chat resource)" },
+          { name: "Get Member", value: "getChatMember", description: "Get info about a chat member (Chat resource)" },
+          { name: "Leave", value: "leaveChat", description: "Leave a group, supergroup, or channel (Chat resource)" },
+          { name: "Set Description", value: "setDescription", description: "Set chat description (Chat resource)" },
+          { name: "Set Title", value: "setTitle", description: "Set chat title (Chat resource)" },
+          // Callback operations
+          { name: "Answer Query", value: "answerQuery", description: "Answer callback query from inline keyboard (Callback resource)" },
+          { name: "Answer Inline Query", value: "answerInlineQuery", description: "Answer inline query from inline bot (Callback resource)" },
+          // File operations
+          { name: "Get File", value: "getFile", description: "Get file info for downloading (File resource)" },
+          // Message operations
+          { name: "Delete Message", value: "deleteMessage", description: "Delete a message (Message resource)" },
+          { name: "Edit Message Text", value: "editMessageText", description: "Edit text of a message (Message resource)" },
+          { name: "Pin Message", value: "pinChatMessage", description: "Pin a message in chat (Message resource)" },
+          { name: "Send Animation", value: "sendAnimation", description: "Send GIF or video animation (Message resource)" },
+          { name: "Send Audio", value: "sendAudio", description: "Send audio file (Message resource)" },
+          { name: "Send Chat Action", value: "sendChatAction", description: "Show typing, uploading indicator (Message resource)" },
+          { name: "Send Document", value: "sendDocument", description: "Send a file/document (Message resource)" },
+          { name: "Send Location", value: "sendLocation", description: "Send GPS location (Message resource)" },
+          { name: "Send Media Group", value: "sendMediaGroup", description: "Send album of photos/videos (Message resource)" },
+          { name: "Send Message", value: "sendMessage", description: "Send text message (Message resource)" },
+          { name: "Send Photo", value: "sendPhoto", description: "Send a photo (Message resource)" },
+          { name: "Send Sticker", value: "sendSticker", description: "Send a sticker (Message resource)" },
+          { name: "Send Video", value: "sendVideo", description: "Send a video (Message resource)" },
+          { name: "Unpin Message", value: "unpinChatMessage", description: "Unpin a message (Message resource)" },
+        ],
+      },
+      {
+        name: "chatId",
+        type: "string",
+        required: true,
+        description: "Chat ID. For replies use {{ $json.message.chat.id }}. Can be numeric ID or @username for public chats.",
+        placeholder: "123456789 or @channelname",
+      },
+      {
+        name: "text",
+        type: "string",
+        required: false,
+        description: "Message text. Supports Markdown or HTML based on parse_mode setting.",
+        placeholder: "Hello from n8n!",
+      },
+      {
+        name: "messageId",
+        type: "string",
+        required: false,
+        description: "Message ID for edit, delete, pin, unpin operations. Get from {{ $json.message.message_id }}",
+      },
+      {
+        name: "userId",
+        type: "string",
+        required: false,
+        description: "User ID for getChatMember operation",
+      },
+      {
+        name: "fileId",
+        type: "string",
+        required: false,
+        description: "File ID for getFile operation. Get from message.photo[].file_id, message.document.file_id, etc.",
+      },
+      {
+        name: "queryId",
+        type: "string",
+        required: false,
+        description: "Query ID for answerQuery. Get from {{ $json.callback_query.id }}",
+      },
+      {
+        name: "binaryPropertyName",
+        type: "string",
+        required: false,
+        default: "data",
+        description: "Name of binary property containing file to send (for sendPhoto, sendDocument, etc.)",
+      },
+      {
+        name: "action",
+        type: "options",
+        required: false,
+        default: "typing",
+        description: "Chat action to show (for sendChatAction)",
+        options: [
+          { name: "Typing", value: "typing" },
+          { name: "Upload Photo", value: "upload_photo" },
+          { name: "Record Video", value: "record_video" },
+          { name: "Upload Video", value: "upload_video" },
+          { name: "Record Audio", value: "record_voice" },
+          { name: "Upload Audio", value: "upload_voice" },
+          { name: "Upload Document", value: "upload_document" },
+          { name: "Find Location", value: "find_location" },
+        ],
+      },
+      {
+        name: "additionalFields",
+        type: "collection",
+        required: false,
+        description: "Additional options: parse_mode (Markdown|HTML), reply_markup (inline_keyboard, keyboard), disable_notification, protect_content, reply_to_message_id, caption",
+      },
+    ],
+    credentials: [
+      {
+        name: "telegramApi",
+        required: true,
+        description: "Telegram Bot API token. Create a bot via @BotFather to get the token.",
+      },
+    ],
+    examples: [
+      {
+        name: "Send Text Message",
+        description: "Send a simple text message",
+        parameters: {
+          resource: "message",
+          operation: "sendMessage",
+          chatId: "={{ $json.message.chat.id }}",
+          text: "Hello! Your message was received.",
+        },
+      },
+      {
+        name: "Send Markdown Message",
+        description: "Send formatted message with Markdown",
+        parameters: {
+          resource: "message",
+          operation: "sendMessage",
+          chatId: "={{ $json.message.chat.id }}",
+          text: "*Bold* and _italic_ text\n\n`code block`\n\n```python\nprint('Hello')\n```\n\n[Link](https://example.com)",
+          additionalFields: {
+            parse_mode: "Markdown",
+          },
+        },
+      },
+      {
+        name: "Send with Inline Keyboard",
+        description: "Send message with clickable buttons",
+        parameters: {
+          resource: "message",
+          operation: "sendMessage",
+          chatId: "={{ $json.message.chat.id }}",
+          text: "Choose an option:",
+          additionalFields: {
+            parse_mode: "Markdown",
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  { text: "✅ Confirm", callback_data: "confirm" },
+                  { text: "❌ Cancel", callback_data: "cancel" },
+                ],
+                [
+                  { text: "🔗 Open Link", url: "https://example.com" },
+                ],
+              ],
+            },
+          },
+        },
+      },
+      {
+        name: "Send with Reply Keyboard",
+        description: "Send message with reply keyboard",
+        parameters: {
+          resource: "message",
+          operation: "sendMessage",
+          chatId: "={{ $json.message.chat.id }}",
+          text: "Select a quick reply:",
+          additionalFields: {
+            reply_markup: {
+              keyboard: [
+                [{ text: "Option 1" }, { text: "Option 2" }],
+                [{ text: "Option 3" }],
+              ],
+              resize_keyboard: true,
+              one_time_keyboard: true,
+            },
+          },
+        },
+      },
+      {
+        name: "Edit Message",
+        description: "Edit an existing message's text",
+        parameters: {
+          resource: "message",
+          operation: "editMessageText",
+          chatId: "={{ $json.message.chat.id }}",
+          messageId: "={{ $json.message.message_id }}",
+          text: "Message has been updated!",
+          additionalFields: {
+            parse_mode: "Markdown",
+          },
+        },
+      },
+      {
+        name: "Delete Message",
+        description: "Delete a message",
+        parameters: {
+          resource: "message",
+          operation: "deleteMessage",
+          chatId: "={{ $json.message.chat.id }}",
+          messageId: "={{ $json.message.message_id }}",
+        },
+      },
+      {
+        name: "Send Photo",
+        description: "Send a photo from binary data",
+        parameters: {
+          resource: "message",
+          operation: "sendPhoto",
+          chatId: "={{ $json.message.chat.id }}",
+          binaryPropertyName: "data",
+          additionalFields: {
+            caption: "Photo caption here",
+            parse_mode: "Markdown",
+          },
+        },
+      },
+      {
+        name: "Send Document",
+        description: "Send a file as document",
+        parameters: {
+          resource: "message",
+          operation: "sendDocument",
+          chatId: "={{ $json.message.chat.id }}",
+          binaryPropertyName: "data",
+          additionalFields: {
+            caption: "Here's your file",
+            filename: "report.pdf",
+          },
+        },
+      },
+      {
+        name: "Get File for Download",
+        description: "Get file path to download (use with HTTP Request)",
+        parameters: {
+          resource: "file",
+          operation: "getFile",
+          fileId: "={{ $json.message.photo.slice(-1)[0].file_id }}",
+        },
+      },
+      {
+        name: "Answer Callback Query",
+        description: "Respond to inline button press",
+        parameters: {
+          resource: "callback",
+          operation: "answerQuery",
+          queryId: "={{ $json.callback_query.id }}",
+          additionalFields: {
+            text: "Button clicked!",
+            show_alert: false,
+          },
+        },
+      },
+      {
+        name: "Show Typing Indicator",
+        description: "Show 'typing...' status in chat",
+        parameters: {
+          resource: "message",
+          operation: "sendChatAction",
+          chatId: "={{ $json.message.chat.id }}",
+          action: "typing",
+        },
+      },
+      {
+        name: "Get Chat Info",
+        description: "Get information about a chat",
+        parameters: {
+          resource: "chat",
+          operation: "get",
+          chatId: "={{ $json.message.chat.id }}",
+        },
+      },
+      {
+        name: "Get Chat Administrators",
+        description: "Get list of chat administrators",
+        parameters: {
+          resource: "chat",
+          operation: "getAdministrators",
+          chatId: "={{ $json.message.chat.id }}",
+        },
+      },
+      {
+        name: "Pin Message",
+        description: "Pin a message in the chat",
+        parameters: {
+          resource: "message",
+          operation: "pinChatMessage",
+          chatId: "={{ $json.message.chat.id }}",
+          messageId: "={{ $json.message.message_id }}",
+          additionalFields: {
+            disable_notification: true,
+          },
+        },
+      },
+      {
+        name: "Send Location",
+        description: "Send GPS coordinates",
+        parameters: {
+          resource: "message",
+          operation: "sendLocation",
+          chatId: "={{ $json.message.chat.id }}",
+          latitude: "={{ $json.latitude }}",
+          longitude: "={{ $json.longitude }}",
+        },
+      },
+    ],
+  },
+
+  // ============ NOTION NODE ============
+
+  "n8n-nodes-base.notion": {
+    type: "n8n-nodes-base.notion",
+    displayName: "Notion",
+    description: "Create, read, update pages, databases, and blocks in Notion",
+    category: "action",
+    typeVersion: 2.2,
+    inputs: ["main"],
+    outputs: ["main"],
+    parameters: [
+      {
+        name: "resource",
+        type: "options",
+        required: true,
+        default: "databasePage",
+        description: "Resource to operate on",
+        options: [
+          { name: "Block", value: "block", description: "Append or retrieve page blocks/content" },
+          { name: "Database", value: "database", description: "Get, list, or search databases" },
+          { name: "Database Page", value: "databasePage", description: "CRUD operations on database entries (rows)" },
+          { name: "Page", value: "page", description: "Create, archive, or search pages" },
+          { name: "User", value: "user", description: "Get user information" },
+        ],
+      },
+      {
+        name: "operation",
+        type: "options",
+        required: true,
+        default: "create",
+        description: "Operation to perform. Available operations depend on resource.",
+        options: [
+          // Block operations
+          { name: "Append", value: "append", description: "Append blocks to a page (Block resource)" },
+          { name: "Get All", value: "getAll", description: "Get all children blocks of a page (Block resource)" },
+          // Database operations
+          { name: "Get", value: "get", description: "Get a database by ID (Database resource)" },
+          { name: "Search", value: "search", description: "Search databases by title (Database resource)" },
+          // DatabasePage operations
+          { name: "Create", value: "create", description: "Create a new database entry (DatabasePage resource)" },
+          { name: "Update", value: "update", description: "Update a database entry (DatabasePage resource)" },
+          // Page operations
+          { name: "Archive", value: "archive", description: "Archive a page (Page resource)" },
+          // User operations - uses get, getAll
+        ],
+      },
+      {
+        name: "databaseId",
+        type: "string",
+        required: false,
+        description: "Database ID. Find in database URL: notion.so/{workspace}/{database_id}?v=... Required for database and databasePage operations.",
+        placeholder: "a1b2c3d4e5f6...",
+      },
+      {
+        name: "pageId",
+        type: "string",
+        required: false,
+        description: "Page ID for page/block operations. Find in page URL after the workspace name.",
+        placeholder: "a1b2c3d4e5f6...",
+      },
+      {
+        name: "blockId",
+        type: "string",
+        required: false,
+        description: "Block ID for block operations. Use page ID to get root blocks.",
+      },
+      {
+        name: "title",
+        type: "string",
+        required: false,
+        description: "Page title (for page create operation)",
+      },
+      {
+        name: "propertiesUi",
+        type: "fixedCollection",
+        required: false,
+        description: "Properties to set for database page. Property types: title, richText, number, select, multiSelect, date, checkbox, url, email, phone, files, relation, people, status.",
+      },
+      {
+        name: "blockUi",
+        type: "fixedCollection",
+        required: false,
+        description: "Blocks to append. Block types: paragraph, heading_1, heading_2, heading_3, bulleted_list_item, numbered_list_item, to_do, toggle, code, quote, callout, divider.",
+      },
+      {
+        name: "filterType",
+        type: "options",
+        required: false,
+        default: "none",
+        description: "How to filter database query results",
+        options: [
+          { name: "None", value: "none" },
+          { name: "Define Below", value: "manual", description: "Build filter with UI" },
+          { name: "JSON", value: "json", description: "Provide filter as JSON" },
+        ],
+      },
+      {
+        name: "filters",
+        type: "fixedCollection",
+        required: false,
+        description: "Filter conditions for database queries. Use property name and filter type (equals, contains, starts_with, etc.)",
+      },
+      {
+        name: "sortUi",
+        type: "fixedCollection",
+        required: false,
+        description: "Sort results by property or timestamp (created_time, last_edited_time)",
+      },
+      {
+        name: "options",
+        type: "collection",
+        required: false,
+        description: "Additional options: returnAll, limit, simple (simplified output), downloadFiles",
+      },
+    ],
+    credentials: [
+      {
+        name: "notionApi",
+        required: true,
+        description: "Notion API integration token. Create at notion.so/my-integrations. Must share pages/databases with integration.",
+      },
+    ],
+    examples: [
+      {
+        name: "Create Database Entry",
+        description: "Add a new row to a Notion database with various property types",
+        parameters: {
+          resource: "databasePage",
+          operation: "create",
+          databaseId: "your-database-id",
+          propertiesUi: {
+            propertyValues: [
+              { key: "Name", type: "title", title: "={{ $json.name }}" },
+              { key: "Status", type: "select", selectValue: "In Progress" },
+              { key: "Due Date", type: "date", date: "={{ $json.dueDate }}" },
+              { key: "Amount", type: "number", number: "={{ $json.amount }}" },
+              { key: "Tags", type: "multiSelect", multiSelectValue: ["urgent", "review"] },
+              { key: "Completed", type: "checkbox", checkboxValue: false },
+              { key: "Notes", type: "richText", richText: "={{ $json.notes }}" },
+              { key: "Website", type: "url", urlValue: "={{ $json.url }}" },
+            ],
+          },
+        },
+      },
+      {
+        name: "Query Database with Filter",
+        description: "Get entries where Status equals Active",
+        parameters: {
+          resource: "databasePage",
+          operation: "getAll",
+          databaseId: "your-database-id",
+          returnAll: false,
+          limit: 50,
+          filterType: "manual",
+          filters: {
+            conditions: [
+              {
+                property: "Status",
+                type: "select",
+                condition: "equals",
+                value: "Active",
+              },
+            ],
+          },
+          sortUi: {
+            sortValues: [
+              { property: "Due Date", direction: "ascending" },
+            ],
+          },
+        },
+      },
+      {
+        name: "Query Database with JSON Filter",
+        description: "Complex filter using JSON format",
+        parameters: {
+          resource: "databasePage",
+          operation: "getAll",
+          databaseId: "your-database-id",
+          filterType: "json",
+          filters: {
+            json: `{
+  "and": [
+    { "property": "Status", "select": { "equals": "Active" } },
+    { "property": "Due Date", "date": { "on_or_before": "{{ $now.toISODate() }}" } }
+  ]
+}`,
+          },
+        },
+      },
+      {
+        name: "Update Database Entry",
+        description: "Update properties of an existing entry",
+        parameters: {
+          resource: "databasePage",
+          operation: "update",
+          pageId: "={{ $json.notion_page_id }}",
+          propertiesUi: {
+            propertyValues: [
+              { key: "Status", type: "select", selectValue: "Completed" },
+              { key: "Completed", type: "checkbox", checkboxValue: true },
+            ],
+          },
+        },
+      },
+      {
+        name: "Create Page with Content",
+        description: "Create a page under a parent with blocks",
+        parameters: {
+          resource: "page",
+          operation: "create",
+          parentPageId: "parent-page-id",
+          title: "={{ $json.title }}",
+          blockUi: {
+            blockValues: [
+              { type: "heading_2", text: "Overview" },
+              { type: "paragraph", text: "={{ $json.summary }}" },
+              { type: "heading_2", text: "Details" },
+              { type: "bulleted_list_item", text: "Item 1" },
+              { type: "bulleted_list_item", text: "Item 2" },
+              { type: "to_do", text: "Task to complete", checked: false },
+            ],
+          },
+        },
+      },
+      {
+        name: "Append Blocks to Page",
+        description: "Add content blocks to an existing page",
+        parameters: {
+          resource: "block",
+          operation: "append",
+          blockId: "={{ $json.page_id }}",
+          blockUi: {
+            blockValues: [
+              { type: "paragraph", text: "New paragraph added via automation" },
+              { type: "callout", text: "Important note", icon: "💡" },
+            ],
+          },
+        },
+      },
+      {
+        name: "Get Page Blocks",
+        description: "Retrieve all blocks/content from a page",
+        parameters: {
+          resource: "block",
+          operation: "getAll",
+          blockId: "={{ $json.page_id }}",
+          returnAll: true,
+        },
+      },
+      {
+        name: "Search Databases",
+        description: "Find databases by title",
+        parameters: {
+          resource: "database",
+          operation: "search",
+          searchText: "Projects",
+        },
+      },
+      {
+        name: "Get User Info",
+        description: "Get information about a Notion user",
+        parameters: {
+          resource: "user",
+          operation: "get",
+          userId: "={{ $json.user_id }}",
+        },
+      },
+      {
+        name: "Archive Page",
+        description: "Archive/soft-delete a page",
+        parameters: {
+          resource: "page",
+          operation: "archive",
+          pageId: "={{ $json.page_id }}",
         },
       },
     ],
@@ -1543,6 +3209,281 @@ export const WORKFLOW_TEMPLATES: Record<string, WorkflowTemplate> = {
           [{ node: "Approved Path", type: "main", index: 0 }],
           [{ node: "Rejected Path", type: "main", index: 0 }],
         ],
+      },
+    },
+  },
+
+  "expense-tracker-telegram-notion": {
+    name: "Expense Tracker: Telegram Receipt to Notion",
+    description: "Receive receipt images via Telegram, extract expense data with GPT-4o Vision, confirm with user if uncertain, and save to Notion database",
+    nodes: [
+      {
+        name: "Telegram Trigger",
+        type: "n8n-nodes-base.telegramTrigger",
+        position: [0, 300],
+        parameters: {
+          updates: ["message"],
+        },
+      },
+      {
+        name: "Check Has Image",
+        type: "n8n-nodes-base.if",
+        position: [200, 300],
+        parameters: {
+          conditions: {
+            options: { caseSensitive: true, leftValue: "", typeValidation: "strict" },
+            conditions: [
+              {
+                id: "has_photo",
+                leftValue: "={{ $json.message.photo }}",
+                rightValue: "",
+                operator: { type: "array", operation: "notEmpty" },
+              },
+            ],
+            combinator: "or",
+          },
+        },
+      },
+      {
+        name: "Send No Image Error",
+        type: "n8n-nodes-base.telegram",
+        position: [400, 150],
+        parameters: {
+          operation: "sendMessage",
+          chatId: "={{ $json.message.chat.id }}",
+          text: "Please send a receipt image or screenshot. I can only process expenses from images.",
+        },
+      },
+      {
+        name: "Get File Info",
+        type: "n8n-nodes-base.telegram",
+        position: [400, 450],
+        parameters: {
+          operation: "getFile",
+          fileId: "={{ $json.message.photo.slice(-1)[0].file_id }}",
+        },
+      },
+      {
+        name: "Download Image",
+        type: "n8n-nodes-base.httpRequest",
+        position: [600, 450],
+        parameters: {
+          method: "GET",
+          url: "=https://api.telegram.org/file/bot{{ $credentials.telegramApi.accessToken }}/{{ $json.result.file_path }}",
+          options: { response: { response: { responseFormat: "file" } } },
+        },
+      },
+      {
+        name: "Extract with GPT-4o Vision",
+        type: "n8n-nodes-base.httpRequest",
+        position: [800, 450],
+        parameters: {
+          method: "POST",
+          url: "https://api.openai.com/v1/chat/completions",
+          authentication: "predefinedCredentialType",
+          nodeCredentialType: "openAiApi",
+          sendHeaders: true,
+          headerParameters: { parameters: [{ name: "Content-Type", value: "application/json" }] },
+          sendBody: true,
+          specifyBody: "json",
+          jsonBody: `={
+  "model": "gpt-4o",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are an expert receipt analyzer. Extract expense data from receipt images. Return ONLY valid JSON."
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "Analyze this receipt and extract:\\n- date (YYYY-MM-DD)\\n- description (brief, max 100 chars)\\n- amount (number only)\\n- currency (3-letter code)\\n- category (Groceries|Restaurants|Gas|Transportation|Uber|Amazon|Netflix|Subscriptions|Utilities|Healthcare|Entertainment|Shopping|Travel|Education|Insurance|Rent|Other)\\n- type (Expense|Reimbursable)\\n- merchant (store name)\\n- payment_method (Credit Card|Debit Card|Cash|PayPal|Apple Pay|Google Pay|Bank Transfer|Other)\\n- confidence (0-1, your certainty)\\n- notes (any uncertainties)\\n\\nReturn JSON only."
+        },
+        {
+          "type": "image_url",
+          "image_url": { "url": "data:image/jpeg;base64,{{ $binary.data.data }}" }
+        }
+      ]
+    }
+  ],
+  "max_tokens": 1000,
+  "temperature": 0.1
+}`,
+        },
+      },
+      {
+        name: "Parse AI Response",
+        type: "n8n-nodes-base.code",
+        position: [1000, 450],
+        parameters: {
+          mode: "runOnceForAllItems",
+          language: "javaScript",
+          jsCode: `const items = $input.all();
+const results = [];
+
+for (const item of items) {
+  try {
+    const content = item.json.choices[0].message.content;
+    let extracted;
+    const jsonMatch = content.match(/\\\`\\\`\\\`json?\\n?([\\s\\S]*?)\\\`\\\`\\\`/);
+    if (jsonMatch) {
+      extracted = JSON.parse(jsonMatch[1]);
+    } else {
+      extracted = JSON.parse(content);
+    }
+
+    // Add chat info for replies
+    extracted.chat_id = $node['Telegram Trigger'].json.message.chat.id;
+    extracted.file_id = $node['Telegram Trigger'].json.message.photo?.slice(-1)[0]?.file_id;
+    extracted.confidence = extracted.confidence || 0.5;
+    extracted.date = extracted.date || new Date().toISOString().split('T')[0];
+    extracted.currency = extracted.currency || 'USD';
+
+    results.push({ json: extracted });
+  } catch (error) {
+    results.push({
+      json: {
+        error: true,
+        message: error.message,
+        confidence: 0,
+        chat_id: $node['Telegram Trigger'].json.message.chat.id,
+      }
+    });
+  }
+}
+
+return results;`,
+        },
+      },
+      {
+        name: "Confidence Check",
+        type: "n8n-nodes-base.if",
+        position: [1200, 450],
+        parameters: {
+          conditions: {
+            options: { caseSensitive: true, leftValue: "", typeValidation: "strict" },
+            conditions: [
+              {
+                id: "high_confidence",
+                leftValue: "={{ $json.confidence }}",
+                rightValue: 0.85,
+                operator: { type: "number", operation: "gte" },
+              },
+            ],
+            combinator: "and",
+          },
+        },
+      },
+      {
+        name: "Send Confirmation Request",
+        type: "n8n-nodes-base.telegram",
+        position: [1400, 600],
+        parameters: {
+          operation: "sendMessage",
+          chatId: "={{ $json.chat_id }}",
+          text: `=I extracted the following expense. Please confirm:
+
+*Date:* {{ $json.date }}
+*Merchant:* {{ $json.merchant }}
+*Amount:* {{ $json.currency }} {{ $json.amount }}
+*Category:* {{ $json.category }}
+*Description:* {{ $json.description }}
+
+Confidence: {{ Math.round($json.confidence * 100) }}%
+{{ $json.notes ? '⚠️ ' + $json.notes : '' }}
+
+Reply with:
+✅ *confirm* - Save as-is
+✏️ *edit amount=XX* - Correct a field
+❌ *cancel* - Discard`,
+          additionalFields: {
+            parse_mode: "Markdown",
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  { text: "✅ Confirm", callback_data: "confirm" },
+                  { text: "❌ Cancel", callback_data: "cancel" },
+                ],
+              ],
+            },
+          },
+        },
+      },
+      {
+        name: "Create Notion Entry",
+        type: "n8n-nodes-base.notion",
+        position: [1600, 300],
+        parameters: {
+          resource: "databasePage",
+          operation: "create",
+          databaseId: "={{ $env.NOTION_EXPENSES_DB_ID }}",
+          propertiesUi: {
+            propertyValues: [
+              { key: "Description", type: "title", title: "={{ $json.description }}" },
+              { key: "Date", type: "date", date: "={{ $json.date }}" },
+              { key: "Amount", type: "number", number: "={{ $json.amount }}" },
+              { key: "Currency", type: "select", selectValue: "={{ $json.currency }}" },
+              { key: "Category", type: "select", selectValue: "={{ $json.category }}" },
+              { key: "Type", type: "select", selectValue: "={{ $json.type || 'Expense' }}" },
+              { key: "Merchant", type: "richText", richText: "={{ $json.merchant }}" },
+              { key: "Payment Method", type: "select", selectValue: "={{ $json.payment_method }}" },
+              { key: "Notes", type: "richText", richText: "={{ $json.notes || '' }}" },
+              { key: "Confidence", type: "number", number: "={{ Math.round($json.confidence * 100) }}" },
+            ],
+          },
+        },
+      },
+      {
+        name: "Send Success Message",
+        type: "n8n-nodes-base.telegram",
+        position: [1800, 300],
+        parameters: {
+          operation: "sendMessage",
+          chatId: "={{ $node['Parse AI Response'].json.chat_id }}",
+          text: `=✅ *Expense recorded!*
+
+{{ $node['Parse AI Response'].json.description }}
+*{{ $node['Parse AI Response'].json.currency }} {{ $node['Parse AI Response'].json.amount }}* - {{ $node['Parse AI Response'].json.category }}
+
+Merchant: {{ $node['Parse AI Response'].json.merchant }}
+Date: {{ $node['Parse AI Response'].json.date }}`,
+          additionalFields: {
+            parse_mode: "Markdown",
+          },
+        },
+      },
+    ],
+    connections: {
+      "Telegram Trigger": {
+        main: [[{ node: "Check Has Image", type: "main", index: 0 }]],
+      },
+      "Check Has Image": {
+        main: [
+          [{ node: "Get File Info", type: "main", index: 0 }],
+          [{ node: "Send No Image Error", type: "main", index: 0 }],
+        ],
+      },
+      "Get File Info": {
+        main: [[{ node: "Download Image", type: "main", index: 0 }]],
+      },
+      "Download Image": {
+        main: [[{ node: "Extract with GPT-4o Vision", type: "main", index: 0 }]],
+      },
+      "Extract with GPT-4o Vision": {
+        main: [[{ node: "Parse AI Response", type: "main", index: 0 }]],
+      },
+      "Parse AI Response": {
+        main: [[{ node: "Confidence Check", type: "main", index: 0 }]],
+      },
+      "Confidence Check": {
+        main: [
+          [{ node: "Create Notion Entry", type: "main", index: 0 }],
+          [{ node: "Send Confirmation Request", type: "main", index: 0 }],
+        ],
+      },
+      "Create Notion Entry": {
+        main: [[{ node: "Send Success Message", type: "main", index: 0 }]],
       },
     },
   },

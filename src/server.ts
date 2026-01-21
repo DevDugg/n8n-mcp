@@ -1,4 +1,14 @@
 #!/usr/bin/env node
+import dotenv from "dotenv";
+
+// Load environment variables from custom path if specified
+// This allows the MCP to be used from other projects with a separate .env file
+if (process.env.DOTENV_CONFIG_PATH) {
+  dotenv.config({ path: process.env.DOTENV_CONFIG_PATH });
+} else {
+  dotenv.config(); // Default .env in current directory
+}
+
 import express, { type Express, type Request, type Response } from "express";
 import cors from "cors";
 import rateLimit from "express-rate-limit";
