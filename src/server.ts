@@ -11,7 +11,7 @@ if (process.env.DOTENV_CONFIG_PATH) {
 
 import express, { type Express, type Request, type Response } from "express";
 import cors from "cors";
-import rateLimit from "express-rate-limit";
+import { rateLimit } from "express-rate-limit";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
