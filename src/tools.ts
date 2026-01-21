@@ -7,11 +7,12 @@ import {
   EXPRESSION_REFERENCE,
   getNodeByType,
   getAllNodeTypes,
-  getNodesByCategory,
+  getNodesForCategory,
   searchNodes,
   getWorkflowTemplate,
   getAllWorkflowTemplates,
   type NodeSchema,
+  type NodeCategory,
 } from "./node-catalog.js";
 
 // ============ SCHEMAS MATCHING n8n OpenAPI SPEC ============
@@ -547,16 +548,32 @@ Use this to discover available nodes and understand what they do.
 Filter by category:
 - trigger: Nodes that start workflows (Manual, Schedule, Webhook)
 - core: Essential utility nodes (HTTP Request, Code)
-- action: Service integrations (Slack, Gmail, Google Sheets)
+- action: Service integrations
 - data: Data transformation nodes (Set, Filter, Sort, Aggregate)
 - flow: Flow control nodes (IF, Switch, Merge, Split In Batches)
-- ai: AI/LLM nodes (OpenAI)`,
+- ai: AI/LLM nodes (OpenAI, Anthropic, etc.)
+- communication: Messaging apps (Slack, Discord, Telegram)
+- email: Email services (Gmail, SendGrid, Mailchimp)
+- crm: CRM platforms (Salesforce, HubSpot, Pipedrive)
+- project: Project management (Jira, Asana, ClickUp)
+- database: Databases (Postgres, MySQL, MongoDB)
+- storage: Cloud storage (S3, Dropbox, Google Drive)
+- ecommerce: E-commerce (Shopify, Stripe, WooCommerce)
+- productivity: Productivity tools (Google Sheets, Notion, Airtable)
+- social: Social media (Twitter, Facebook, LinkedIn)
+- devops: DevOps tools (GitHub, GitLab, Jenkins)
+- analytics: Analytics platforms (Google Analytics, Mixpanel)
+- marketing: Marketing automation (Klaviyo, Brevo)
+- hr: HR & Recruitment (BambooHR, Workable)
+- finance: Finance & Accounting (QuickBooks, Xero)
+- support: Customer support (Zendesk, Intercom)
+- utility: Utility nodes`,
     {
-      category: z.enum(["trigger", "core", "action", "data", "flow", "ai"]).optional().describe("Filter by category"),
+      category: z.enum(["trigger", "core", "action", "data", "flow", "ai", "communication", "email", "crm", "project", "database", "storage", "ecommerce", "productivity", "social", "devops", "analytics", "marketing", "hr", "finance", "support", "utility"]).optional().describe("Filter by category"),
     },
     async ({ category }) => {
       try {
-        const nodes = category ? getNodesByCategory(category) : Object.values(NODE_CATALOG);
+        const nodes = category ? getNodesForCategory(category as NodeCategory) : Object.values(NODE_CATALOG);
         const summary = nodes.map((n: NodeSchema) => ({
           type: n.type,
           displayName: n.displayName,
