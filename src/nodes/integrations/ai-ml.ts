@@ -832,4 +832,152 @@ export const AI_ML_NODES: Record<string, NodeSchema> = {
     ],
     documentationUrl: "https://docs.n8n.io/integrations/builtin/cluster-nodes/root-nodes/n8n-nodes-langchain.chainsummarization/",
   },
+
+  "@n8n/n8n-nodes-langchain.aiTransform": {
+    type: "@n8n/n8n-nodes-langchain.aiTransform",
+    displayName: "AI Transform",
+    description: "Use AI to transform and manipulate data with natural language instructions",
+    category: "ai",
+    typeVersion: 1,
+    inputs: ["main"],
+    outputs: ["main"],
+    parameters: [
+      {
+        name: "instructions",
+        type: "string",
+        required: true,
+        default: "",
+        description: "Natural language instructions for data transformation",
+        placeholder: "Extract all email addresses from the text",
+      },
+      {
+        name: "schemaType",
+        type: "options",
+        required: true,
+        default: "fromPrevious",
+        description: "Output schema definition",
+        options: [
+          { name: "From Previous Node", value: "fromPrevious", description: "Use schema from input" },
+          { name: "Define Schema", value: "manual", description: "Manually define output schema" },
+          { name: "Generate Schema", value: "generate", description: "Let AI generate schema" },
+        ],
+      },
+      {
+        name: "options",
+        type: "collection",
+        required: false,
+        default: {},
+        description: "Additional options",
+      },
+    ],
+    examples: [
+      {
+        name: "Extract Data",
+        description: "Extract structured data from text",
+        parameters: {
+          instructions: "Extract the name, email, and phone number from this text",
+          schemaType: "generate",
+        },
+      },
+    ],
+    documentationUrl: "https://docs.n8n.io/integrations/builtin/cluster-nodes/root-nodes/n8n-nodes-langchain.aitransform/",
+  },
+
+  "n8n-nodes-base.mcpClient": {
+    type: "n8n-nodes-base.mcpClient",
+    displayName: "MCP Client",
+    description: "Connect to Model Context Protocol (MCP) servers to use external tools and resources",
+    category: "ai",
+    typeVersion: 1,
+    inputs: ["main"],
+    outputs: ["main"],
+    parameters: [
+      {
+        name: "operation",
+        type: "options",
+        required: true,
+        default: "executeTool",
+        description: "Operation to perform",
+        options: [
+          { name: "Execute Tool", value: "executeTool", description: "Execute an MCP tool" },
+          { name: "Get Resources", value: "getResources", description: "List available resources" },
+          { name: "Read Resource", value: "readResource", description: "Read a resource" },
+        ],
+      },
+      {
+        name: "toolName",
+        type: "string",
+        required: true,
+        default: "",
+        description: "Name of the MCP tool to execute",
+        displayOptions: { show: { operation: ["executeTool"] } },
+      },
+      {
+        name: "toolArguments",
+        type: "json",
+        required: false,
+        default: "{}",
+        description: "Arguments to pass to the tool",
+        displayOptions: { show: { operation: ["executeTool"] } },
+      },
+    ],
+    credentials: [
+      { name: "mcpClientApi", required: true, description: "MCP server connection settings" },
+    ],
+    examples: [
+      {
+        name: "Execute Tool",
+        description: "Execute an MCP tool",
+        parameters: {
+          operation: "executeTool",
+          toolName: "search_files",
+          toolArguments: "{{ { \"query\": \"config\" } }}",
+        },
+      },
+    ],
+    documentationUrl: "https://docs.n8n.io/integrations/builtin/app-nodes/n8n-nodes-base.mcpclient/",
+  },
+
+  "@n8n/n8n-nodes-langchain.outputParserStructured": {
+    type: "@n8n/n8n-nodes-langchain.outputParserStructured",
+    displayName: "Structured Output Parser",
+    description: "Parse LLM outputs into structured JSON using schemas",
+    category: "ai",
+    typeVersion: 1.2,
+    inputs: ["main"],
+    outputs: ["main"],
+    parameters: [
+      {
+        name: "schemaType",
+        type: "options",
+        required: true,
+        default: "fromJson",
+        description: "How to define the output schema",
+        options: [
+          { name: "From JSON Schema", value: "fromJson", description: "Use JSON schema" },
+          { name: "From Example", value: "fromExample", description: "Define by example" },
+          { name: "Manual", value: "manual", description: "Define fields manually" },
+        ],
+      },
+      {
+        name: "jsonSchema",
+        type: "json",
+        required: true,
+        default: "{}",
+        description: "JSON schema for output structure",
+        displayOptions: { show: { schemaType: ["fromJson"] } },
+      },
+    ],
+    examples: [
+      {
+        name: "Parse to JSON",
+        description: "Parse LLM output to structured JSON",
+        parameters: {
+          schemaType: "fromJson",
+          jsonSchema: "{{ { \"type\": \"object\", \"properties\": { \"name\": { \"type\": \"string\" } } } }}",
+        },
+      },
+    ],
+    documentationUrl: "https://docs.n8n.io/integrations/builtin/cluster-nodes/sub-nodes/n8n-nodes-langchain.outputparserstructured/",
+  },
 };

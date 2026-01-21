@@ -948,4 +948,128 @@ export const COMMUNICATION_NODES: Record<string, NodeSchema> = {
     ],
     documentationUrl: "https://docs.n8n.io/integrations/builtin/app-nodes/n8n-nodes-base.line/",
   },
+
+  "n8n-nodes-base.zoom": {
+    type: "n8n-nodes-base.zoom",
+    displayName: "Zoom",
+    description: "Manage Zoom meetings, users, and webinars",
+    category: "communication",
+    typeVersion: 1,
+    inputs: ["main"],
+    outputs: ["main"],
+    credentials: [
+      { name: "zoomOAuth2Api", required: true, description: "Zoom OAuth2 credentials" },
+    ],
+    parameters: [
+      {
+        name: "resource",
+        type: "options",
+        required: true,
+        default: "meeting",
+        description: "Resource to operate on",
+        options: [
+          { name: "Meeting", value: "meeting", description: "Manage meetings" },
+          { name: "Meeting Registrant", value: "meetingRegistrant", description: "Manage registrants" },
+          { name: "User", value: "user", description: "Manage users" },
+          { name: "Webinar", value: "webinar", description: "Manage webinars" },
+        ],
+      },
+      {
+        name: "operation",
+        type: "options",
+        required: true,
+        default: "create",
+        description: "Operation to perform",
+        options: [
+          { name: "Create", value: "create", description: "Create a meeting" },
+          { name: "Delete", value: "delete", description: "Delete a meeting" },
+          { name: "Get", value: "get", description: "Get meeting details" },
+          { name: "Get All", value: "getAll", description: "Get all meetings" },
+          { name: "Update", value: "update", description: "Update a meeting" },
+        ],
+        displayOptions: { show: { resource: ["meeting"] } },
+      },
+      {
+        name: "topic",
+        type: "string",
+        required: true,
+        default: "",
+        description: "Meeting topic",
+        displayOptions: { show: { resource: ["meeting"], operation: ["create"] } },
+      },
+    ],
+    examples: [
+      {
+        name: "Create Meeting",
+        description: "Create a Zoom meeting",
+        parameters: {
+          resource: "meeting",
+          operation: "create",
+          topic: "Team Sync",
+        },
+      },
+    ],
+    documentationUrl: "https://docs.n8n.io/integrations/builtin/app-nodes/n8n-nodes-base.zoom/",
+  },
+
+  "n8n-nodes-base.webex": {
+    type: "n8n-nodes-base.webex",
+    displayName: "Webex by Cisco",
+    description: "Manage Webex meetings, messages, and teams",
+    category: "communication",
+    typeVersion: 1,
+    inputs: ["main"],
+    outputs: ["main"],
+    credentials: [
+      { name: "webexOAuth2Api", required: true, description: "Webex OAuth2 credentials" },
+    ],
+    parameters: [
+      {
+        name: "resource",
+        type: "options",
+        required: true,
+        default: "meeting",
+        description: "Resource to operate on",
+        options: [
+          { name: "Meeting", value: "meeting", description: "Manage meetings" },
+          { name: "Message", value: "message", description: "Manage messages" },
+        ],
+      },
+      {
+        name: "operation",
+        type: "options",
+        required: true,
+        default: "create",
+        description: "Operation to perform",
+        options: [
+          { name: "Create", value: "create", description: "Create a meeting" },
+          { name: "Delete", value: "delete", description: "Delete a meeting" },
+          { name: "Get", value: "get", description: "Get meeting details" },
+          { name: "Get All", value: "getAll", description: "Get all meetings" },
+          { name: "Update", value: "update", description: "Update a meeting" },
+        ],
+        displayOptions: { show: { resource: ["meeting"] } },
+      },
+      {
+        name: "title",
+        type: "string",
+        required: true,
+        default: "",
+        description: "Meeting title",
+        displayOptions: { show: { resource: ["meeting"], operation: ["create"] } },
+      },
+    ],
+    examples: [
+      {
+        name: "Create Meeting",
+        description: "Create a Webex meeting",
+        parameters: {
+          resource: "meeting",
+          operation: "create",
+          title: "Weekly Standup",
+        },
+      },
+    ],
+    documentationUrl: "https://docs.n8n.io/integrations/builtin/app-nodes/n8n-nodes-base.webex/",
+  },
 };

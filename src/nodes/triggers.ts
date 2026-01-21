@@ -1650,4 +1650,78 @@ export const TRIGGER_NODES: Record<string, NodeSchema> = {
     ],
     documentationUrl: "https://docs.n8n.io/integrations/builtin/trigger-nodes/n8n-nodes-base.googledrivetrigger/",
   },
+
+  "n8n-nodes-base.activationTrigger": {
+    type: "n8n-nodes-base.activationTrigger",
+    displayName: "Activation Trigger",
+    description: "Triggers when the workflow is activated or updated",
+    category: "trigger",
+    typeVersion: 1,
+    inputs: [],
+    outputs: ["main"],
+    parameters: [
+      {
+        name: "events",
+        type: "options",
+        required: true,
+        default: "activate",
+        description: "Events to trigger on",
+        options: [
+          { name: "Workflow Activated", value: "activate", description: "When workflow is activated" },
+          { name: "Workflow Updated", value: "update", description: "When workflow is updated" },
+        ],
+      },
+    ],
+    examples: [
+      {
+        name: "On Activation",
+        description: "Run when workflow is activated",
+        parameters: {
+          events: "activate",
+        },
+      },
+    ],
+    documentationUrl: "https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.activationtrigger/",
+  },
+
+  "n8n-nodes-base.chatTrigger": {
+    type: "n8n-nodes-base.chatTrigger",
+    displayName: "Chat Trigger",
+    description: "Triggers workflow from chat messages in n8n chat interface",
+    category: "trigger",
+    typeVersion: 1,
+    inputs: [],
+    outputs: ["main"],
+    parameters: [
+      {
+        name: "mode",
+        type: "options",
+        required: true,
+        default: "webhook",
+        description: "How to receive messages",
+        options: [
+          { name: "Webhook", value: "webhook", description: "Receive via webhook" },
+          { name: "Hosted Chat", value: "hostedChat", description: "Use n8n hosted chat" },
+        ],
+      },
+      {
+        name: "options",
+        type: "collection",
+        required: false,
+        default: {},
+        description: "Additional options like allowed origins, initial messages",
+      },
+    ],
+    examples: [
+      {
+        name: "Chat Interface",
+        description: "Receive messages from chat",
+        parameters: {
+          mode: "hostedChat",
+        },
+      },
+    ],
+    documentationUrl: "https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.chattrigger/",
+  },
+
 };

@@ -991,4 +991,423 @@ export const DEVOPS_NODES: Record<string, NodeSchema> = {
     ],
     documentationUrl: "https://docs.n8n.io/integrations/builtin/app-nodes/n8n-nodes-base.grafana/",
   },
+
+  "n8n-nodes-base.awsTextract": {
+    type: "n8n-nodes-base.awsTextract",
+    displayName: "AWS Textract",
+    description: "Extract text and data from documents using AWS Textract",
+    category: "devops",
+    typeVersion: 1,
+    inputs: ["main"],
+    outputs: ["main"],
+    credentials: [
+      { name: "aws", required: true, description: "AWS credentials" },
+    ],
+    parameters: [
+      {
+        name: "operation",
+        type: "options",
+        required: true,
+        default: "analyzeExpense",
+        description: "Operation to perform",
+        options: [
+          { name: "Analyze Expense", value: "analyzeExpense", description: "Analyze receipts and invoices" },
+          { name: "Detect Document Text", value: "detectDocumentText", description: "Extract text from documents" },
+        ],
+      },
+      {
+        name: "binaryPropertyName",
+        type: "string",
+        required: true,
+        default: "data",
+        description: "Property containing document binary",
+      },
+    ],
+    examples: [
+      {
+        name: "Extract Receipt",
+        description: "Extract data from a receipt",
+        parameters: {
+          operation: "analyzeExpense",
+          binaryPropertyName: "data",
+        },
+      },
+    ],
+    documentationUrl: "https://docs.n8n.io/integrations/builtin/app-nodes/n8n-nodes-base.awstextract/",
+  },
+
+  "n8n-nodes-base.awsTranscribe": {
+    type: "n8n-nodes-base.awsTranscribe",
+    displayName: "AWS Transcribe",
+    description: "Convert speech to text using AWS Transcribe",
+    category: "devops",
+    typeVersion: 1,
+    inputs: ["main"],
+    outputs: ["main"],
+    credentials: [
+      { name: "aws", required: true, description: "AWS credentials" },
+    ],
+    parameters: [
+      {
+        name: "operation",
+        type: "options",
+        required: true,
+        default: "create",
+        description: "Operation to perform",
+        options: [
+          { name: "Create", value: "create", description: "Create transcription job" },
+          { name: "Delete", value: "delete", description: "Delete transcription job" },
+          { name: "Get", value: "get", description: "Get transcription job" },
+          { name: "Get All", value: "getAll", description: "List transcription jobs" },
+        ],
+      },
+      {
+        name: "transcriptionJobName",
+        type: "string",
+        required: true,
+        default: "",
+        description: "Name for the transcription job",
+      },
+      {
+        name: "mediaFileUri",
+        type: "string",
+        required: true,
+        default: "",
+        description: "S3 URI of the media file",
+        displayOptions: { show: { operation: ["create"] } },
+      },
+    ],
+    examples: [
+      {
+        name: "Transcribe Audio",
+        description: "Create a transcription job",
+        parameters: {
+          operation: "create",
+          transcriptionJobName: "my-transcription",
+          mediaFileUri: "s3://bucket/audio.mp3",
+        },
+      },
+    ],
+    documentationUrl: "https://docs.n8n.io/integrations/builtin/app-nodes/n8n-nodes-base.awstranscribe/",
+  },
+
+  "n8n-nodes-base.awsRekognition": {
+    type: "n8n-nodes-base.awsRekognition",
+    displayName: "AWS Rekognition",
+    description: "Analyze images and videos using AWS Rekognition",
+    category: "devops",
+    typeVersion: 1,
+    inputs: ["main"],
+    outputs: ["main"],
+    credentials: [
+      { name: "aws", required: true, description: "AWS credentials" },
+    ],
+    parameters: [
+      {
+        name: "operation",
+        type: "options",
+        required: true,
+        default: "detectLabels",
+        description: "Operation to perform",
+        options: [
+          { name: "Detect Faces", value: "detectFaces", description: "Detect faces in image" },
+          { name: "Detect Labels", value: "detectLabels", description: "Detect objects and scenes" },
+          { name: "Detect Text", value: "detectText", description: "Detect text in image" },
+          { name: "Recognize Celebrities", value: "recognizeCelebrities", description: "Recognize celebrities" },
+        ],
+      },
+      {
+        name: "binaryPropertyName",
+        type: "string",
+        required: true,
+        default: "data",
+        description: "Property containing image binary",
+      },
+    ],
+    examples: [
+      {
+        name: "Detect Objects",
+        description: "Detect objects in an image",
+        parameters: {
+          operation: "detectLabels",
+          binaryPropertyName: "data",
+        },
+      },
+    ],
+    documentationUrl: "https://docs.n8n.io/integrations/builtin/app-nodes/n8n-nodes-base.awsrekognition/",
+  },
+
+  "n8n-nodes-base.awsComprehend": {
+    type: "n8n-nodes-base.awsComprehend",
+    displayName: "AWS Comprehend",
+    description: "Natural language processing with AWS Comprehend",
+    category: "devops",
+    typeVersion: 1,
+    inputs: ["main"],
+    outputs: ["main"],
+    credentials: [
+      { name: "aws", required: true, description: "AWS credentials" },
+    ],
+    parameters: [
+      {
+        name: "operation",
+        type: "options",
+        required: true,
+        default: "detectSentiment",
+        description: "Operation to perform",
+        options: [
+          { name: "Detect Dominant Language", value: "detectDominantLanguage", description: "Detect language" },
+          { name: "Detect Entities", value: "detectEntities", description: "Detect named entities" },
+          { name: "Detect Key Phrases", value: "detectKeyPhrases", description: "Extract key phrases" },
+          { name: "Detect Sentiment", value: "detectSentiment", description: "Analyze sentiment" },
+        ],
+      },
+      {
+        name: "text",
+        type: "string",
+        required: true,
+        default: "",
+        description: "Text to analyze",
+      },
+      {
+        name: "languageCode",
+        type: "options",
+        required: true,
+        default: "en",
+        description: "Language of the text",
+        options: [
+          { name: "English", value: "en" },
+          { name: "Spanish", value: "es" },
+          { name: "French", value: "fr" },
+          { name: "German", value: "de" },
+        ],
+      },
+    ],
+    examples: [
+      {
+        name: "Analyze Sentiment",
+        description: "Detect sentiment in text",
+        parameters: {
+          operation: "detectSentiment",
+          text: "={{ $json.review }}",
+          languageCode: "en",
+        },
+      },
+    ],
+    documentationUrl: "https://docs.n8n.io/integrations/builtin/app-nodes/n8n-nodes-base.awscomprehend/",
+  },
+
+  "n8n-nodes-base.googleBigQuery": {
+    type: "n8n-nodes-base.googleBigQuery",
+    displayName: "Google BigQuery",
+    description: "Execute queries and manage data in Google BigQuery",
+    category: "devops",
+    typeVersion: 2,
+    inputs: ["main"],
+    outputs: ["main"],
+    credentials: [
+      { name: "googleBigQueryOAuth2Api", required: true, description: "Google BigQuery OAuth2 credentials" },
+    ],
+    parameters: [
+      {
+        name: "operation",
+        type: "options",
+        required: true,
+        default: "executeQuery",
+        description: "Operation to perform",
+        options: [
+          { name: "Execute Query", value: "executeQuery", description: "Run a SQL query" },
+          { name: "Insert", value: "insert", description: "Insert rows" },
+          { name: "Get All", value: "getAll", description: "Get all rows" },
+        ],
+      },
+      {
+        name: "projectId",
+        type: "string",
+        required: true,
+        default: "",
+        description: "Google Cloud project ID",
+      },
+      {
+        name: "sqlQuery",
+        type: "string",
+        required: true,
+        default: "",
+        description: "SQL query to execute",
+        displayOptions: { show: { operation: ["executeQuery"] } },
+      },
+    ],
+    examples: [
+      {
+        name: "Run Query",
+        description: "Execute a BigQuery SQL query",
+        parameters: {
+          operation: "executeQuery",
+          projectId: "my-project",
+          sqlQuery: "SELECT * FROM dataset.table LIMIT 100",
+        },
+      },
+    ],
+    documentationUrl: "https://docs.n8n.io/integrations/builtin/app-nodes/n8n-nodes-base.googlebigquery/",
+  },
+
+  "n8n-nodes-base.googleCloudNaturalLanguage": {
+    type: "n8n-nodes-base.googleCloudNaturalLanguage",
+    displayName: "Google Cloud Natural Language",
+    description: "Analyze text with Google Cloud Natural Language API",
+    category: "devops",
+    typeVersion: 1,
+    inputs: ["main"],
+    outputs: ["main"],
+    credentials: [
+      { name: "googleCloudNaturalLanguageApi", required: true, description: "Google Cloud credentials" },
+    ],
+    parameters: [
+      {
+        name: "operation",
+        type: "options",
+        required: true,
+        default: "analyzeSentiment",
+        description: "Operation to perform",
+        options: [
+          { name: "Analyze Entities", value: "analyzeEntities", description: "Detect named entities" },
+          { name: "Analyze Sentiment", value: "analyzeSentiment", description: "Analyze sentiment" },
+          { name: "Analyze Syntax", value: "analyzeSyntax", description: "Analyze syntax" },
+          { name: "Classify Content", value: "classifyContent", description: "Classify content" },
+        ],
+      },
+      {
+        name: "text",
+        type: "string",
+        required: true,
+        default: "",
+        description: "Text to analyze",
+      },
+    ],
+    examples: [
+      {
+        name: "Sentiment Analysis",
+        description: "Analyze text sentiment",
+        parameters: {
+          operation: "analyzeSentiment",
+          text: "={{ $json.content }}",
+        },
+      },
+    ],
+    documentationUrl: "https://docs.n8n.io/integrations/builtin/app-nodes/n8n-nodes-base.googlecloudnaturallanguage/",
+  },
+
+  "n8n-nodes-base.awsCognito": {
+    type: "n8n-nodes-base.awsCognito",
+    displayName: "AWS Cognito",
+    description: "Manage user authentication with AWS Cognito",
+    category: "devops",
+    typeVersion: 1,
+    inputs: ["main"],
+    outputs: ["main"],
+    credentials: [
+      { name: "aws", required: true, description: "AWS credentials" },
+    ],
+    parameters: [
+      {
+        name: "operation",
+        type: "options",
+        required: true,
+        default: "getUser",
+        description: "Operation to perform",
+        options: [
+          { name: "Create User", value: "createUser", description: "Create a new user" },
+          { name: "Delete User", value: "deleteUser", description: "Delete a user" },
+          { name: "Get User", value: "getUser", description: "Get user details" },
+          { name: "List Users", value: "listUsers", description: "List all users" },
+        ],
+      },
+      {
+        name: "userPoolId",
+        type: "string",
+        required: true,
+        default: "",
+        description: "Cognito user pool ID",
+      },
+      {
+        name: "username",
+        type: "string",
+        required: true,
+        default: "",
+        description: "Username",
+        displayOptions: { show: { operation: ["getUser", "deleteUser", "createUser"] } },
+      },
+    ],
+    examples: [
+      {
+        name: "List Users",
+        description: "Get all users from pool",
+        parameters: {
+          operation: "listUsers",
+          userPoolId: "us-east-1_xxxxx",
+        },
+      },
+    ],
+    documentationUrl: "https://docs.n8n.io/integrations/builtin/app-nodes/n8n-nodes-base.awscognito/",
+  },
+
+  "n8n-nodes-base.cloudflare": {
+    type: "n8n-nodes-base.cloudflare",
+    displayName: "Cloudflare",
+    description: "Manage Cloudflare DNS, zones, and security settings",
+    category: "devops",
+    typeVersion: 1,
+    inputs: ["main"],
+    outputs: ["main"],
+    credentials: [
+      { name: "cloudflareApi", required: true, description: "Cloudflare API credentials" },
+    ],
+    parameters: [
+      {
+        name: "resource",
+        type: "options",
+        required: true,
+        default: "dnsRecord",
+        description: "Resource to operate on",
+        options: [
+          { name: "DNS Record", value: "dnsRecord", description: "Manage DNS records" },
+          { name: "Zone", value: "zone", description: "Manage zones" },
+        ],
+      },
+      {
+        name: "operation",
+        type: "options",
+        required: true,
+        default: "getAll",
+        description: "Operation to perform",
+        options: [
+          { name: "Create", value: "create", description: "Create a DNS record" },
+          { name: "Delete", value: "delete", description: "Delete a DNS record" },
+          { name: "Get", value: "get", description: "Get a DNS record" },
+          { name: "Get All", value: "getAll", description: "Get all DNS records" },
+          { name: "Update", value: "update", description: "Update a DNS record" },
+        ],
+        displayOptions: { show: { resource: ["dnsRecord"] } },
+      },
+      {
+        name: "zoneId",
+        type: "string",
+        required: true,
+        default: "",
+        description: "Zone ID",
+      },
+    ],
+    examples: [
+      {
+        name: "List DNS Records",
+        description: "Get all DNS records for a zone",
+        parameters: {
+          resource: "dnsRecord",
+          operation: "getAll",
+          zoneId: "zone-id",
+        },
+      },
+    ],
+    documentationUrl: "https://docs.n8n.io/integrations/builtin/app-nodes/n8n-nodes-base.cloudflare/",
+  },
 };

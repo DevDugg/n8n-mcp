@@ -784,4 +784,229 @@ export const MISCELLANEOUS_NODES: Record<string, NodeSchema> = {
     ],
     documentationUrl: "https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.urlshortener/",
   },
+
+  "n8n-nodes-base.odoo": {
+    type: "n8n-nodes-base.odoo",
+    displayName: "Odoo",
+    description: "Manage contacts, opportunities, and notes in Odoo ERP",
+    category: "utility",
+    typeVersion: 1,
+    inputs: ["main"],
+    outputs: ["main"],
+    credentials: [
+      { name: "odooApi", required: true, description: "Odoo API credentials" },
+    ],
+    parameters: [
+      {
+        name: "resource",
+        type: "options",
+        required: true,
+        default: "contact",
+        description: "Resource to operate on",
+        options: [
+          { name: "Contact", value: "contact", description: "Manage contacts" },
+          { name: "Custom Resource", value: "custom", description: "Custom resource" },
+          { name: "Note", value: "note", description: "Manage notes" },
+          { name: "Opportunity", value: "opportunity", description: "Manage opportunities" },
+        ],
+      },
+      {
+        name: "operation",
+        type: "options",
+        required: true,
+        default: "getAll",
+        description: "Operation to perform",
+        options: [
+          { name: "Create", value: "create", description: "Create a contact" },
+          { name: "Delete", value: "delete", description: "Delete a contact" },
+          { name: "Get", value: "get", description: "Get a contact" },
+          { name: "Get All", value: "getAll", description: "Get all contacts" },
+          { name: "Update", value: "update", description: "Update a contact" },
+        ],
+        displayOptions: { show: { resource: ["contact"] } },
+      },
+    ],
+    examples: [
+      {
+        name: "Get Contacts",
+        description: "Get all Odoo contacts",
+        parameters: {
+          resource: "contact",
+          operation: "getAll",
+        },
+      },
+    ],
+    documentationUrl: "https://docs.n8n.io/integrations/builtin/app-nodes/n8n-nodes-base.odoo/",
+  },
+
+  "n8n-nodes-base.mautic": {
+    type: "n8n-nodes-base.mautic",
+    displayName: "Mautic",
+    description: "Manage contacts, companies, and segments in Mautic",
+    category: "utility",
+    typeVersion: 1,
+    inputs: ["main"],
+    outputs: ["main"],
+    credentials: [
+      { name: "mauticApi", required: true, description: "Mautic API credentials" },
+    ],
+    parameters: [
+      {
+        name: "resource",
+        type: "options",
+        required: true,
+        default: "contact",
+        description: "Resource to operate on",
+        options: [
+          { name: "Campaign Contact", value: "campaignContact", description: "Manage campaign contacts" },
+          { name: "Company", value: "company", description: "Manage companies" },
+          { name: "Company Contact", value: "companyContact", description: "Manage company contacts" },
+          { name: "Contact", value: "contact", description: "Manage contacts" },
+          { name: "Segment Email", value: "segmentEmail", description: "Manage segment emails" },
+        ],
+      },
+      {
+        name: "operation",
+        type: "options",
+        required: true,
+        default: "getAll",
+        description: "Operation to perform",
+        options: [
+          { name: "Create", value: "create", description: "Create a contact" },
+          { name: "Delete", value: "delete", description: "Delete a contact" },
+          { name: "Do Not Contact", value: "doNotContact", description: "Add to DNC list" },
+          { name: "Get", value: "get", description: "Get a contact" },
+          { name: "Get All", value: "getAll", description: "Get all contacts" },
+          { name: "Update", value: "update", description: "Update a contact" },
+        ],
+        displayOptions: { show: { resource: ["contact"] } },
+      },
+    ],
+    examples: [
+      {
+        name: "Get Contacts",
+        description: "Get all Mautic contacts",
+        parameters: {
+          resource: "contact",
+          operation: "getAll",
+        },
+      },
+    ],
+    documentationUrl: "https://docs.n8n.io/integrations/builtin/app-nodes/n8n-nodes-base.mautic/",
+  },
+
+  "n8n-nodes-base.metabase": {
+    type: "n8n-nodes-base.metabase",
+    displayName: "Metabase",
+    description: "Query dashboards and questions in Metabase",
+    category: "utility",
+    typeVersion: 1,
+    inputs: ["main"],
+    outputs: ["main"],
+    credentials: [
+      { name: "metabaseApi", required: true, description: "Metabase API credentials" },
+    ],
+    parameters: [
+      {
+        name: "resource",
+        type: "options",
+        required: true,
+        default: "question",
+        description: "Resource to operate on",
+        options: [
+          { name: "Database", value: "database", description: "Manage databases" },
+          { name: "Question", value: "question", description: "Query questions" },
+        ],
+      },
+      {
+        name: "operation",
+        type: "options",
+        required: true,
+        default: "get",
+        description: "Operation to perform",
+        options: [
+          { name: "Get", value: "get", description: "Get a question" },
+          { name: "Get All", value: "getAll", description: "Get all questions" },
+          { name: "Result Data", value: "resultData", description: "Get question results" },
+        ],
+        displayOptions: { show: { resource: ["question"] } },
+      },
+      {
+        name: "questionId",
+        type: "number",
+        required: true,
+        default: 0,
+        description: "Question ID",
+        displayOptions: { show: { resource: ["question"], operation: ["get", "resultData"] } },
+      },
+    ],
+    examples: [
+      {
+        name: "Get Question Results",
+        description: "Get results from a Metabase question",
+        parameters: {
+          resource: "question",
+          operation: "resultData",
+          questionId: 123,
+        },
+      },
+    ],
+    documentationUrl: "https://docs.n8n.io/integrations/builtin/app-nodes/n8n-nodes-base.metabase/",
+  },
+
+  "n8n-nodes-base.bitwarden": {
+    type: "n8n-nodes-base.bitwarden",
+    displayName: "Bitwarden",
+    description: "Manage collections, events, groups, and members in Bitwarden",
+    category: "utility",
+    typeVersion: 1,
+    inputs: ["main"],
+    outputs: ["main"],
+    credentials: [
+      { name: "bitwardenApi", required: true, description: "Bitwarden API credentials" },
+    ],
+    parameters: [
+      {
+        name: "resource",
+        type: "options",
+        required: true,
+        default: "member",
+        description: "Resource to operate on",
+        options: [
+          { name: "Collection", value: "collection", description: "Manage collections" },
+          { name: "Event", value: "event", description: "Get events" },
+          { name: "Group", value: "group", description: "Manage groups" },
+          { name: "Member", value: "member", description: "Manage members" },
+        ],
+      },
+      {
+        name: "operation",
+        type: "options",
+        required: true,
+        default: "getAll",
+        description: "Operation to perform",
+        options: [
+          { name: "Create", value: "create", description: "Create a member" },
+          { name: "Delete", value: "delete", description: "Delete a member" },
+          { name: "Get", value: "get", description: "Get a member" },
+          { name: "Get All", value: "getAll", description: "Get all members" },
+          { name: "Get Groups", value: "getGroups", description: "Get member groups" },
+          { name: "Update", value: "update", description: "Update a member" },
+          { name: "Update Groups", value: "updateGroups", description: "Update member groups" },
+        ],
+        displayOptions: { show: { resource: ["member"] } },
+      },
+    ],
+    examples: [
+      {
+        name: "Get Members",
+        description: "Get all Bitwarden members",
+        parameters: {
+          resource: "member",
+          operation: "getAll",
+        },
+      },
+    ],
+    documentationUrl: "https://docs.n8n.io/integrations/builtin/app-nodes/n8n-nodes-base.bitwarden/",
+  },
 };

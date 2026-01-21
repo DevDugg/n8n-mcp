@@ -901,4 +901,207 @@ export const DATABASE_NODES: Record<string, NodeSchema> = {
     ],
     documentationUrl: "https://docs.n8n.io/integrations/builtin/app-nodes/n8n-nodes-base.cockroachdb/",
   },
+
+  "n8n-nodes-base.kafka": {
+    type: "n8n-nodes-base.kafka",
+    displayName: "Kafka",
+    description: "Send and receive messages from Apache Kafka",
+    category: "database",
+    typeVersion: 1,
+    inputs: ["main"],
+    outputs: ["main"],
+    credentials: [
+      { name: "kafka", required: true, description: "Kafka connection credentials" },
+    ],
+    parameters: [
+      {
+        name: "topic",
+        type: "string",
+        required: true,
+        default: "",
+        description: "Kafka topic",
+      },
+      {
+        name: "message",
+        type: "string",
+        required: true,
+        default: "",
+        description: "Message to send",
+      },
+      {
+        name: "options",
+        type: "collection",
+        required: false,
+        default: {},
+        description: "Additional options like key, headers, partition",
+      },
+    ],
+    examples: [
+      {
+        name: "Send Message",
+        description: "Send a message to Kafka",
+        parameters: {
+          topic: "events",
+          message: "={{ JSON.stringify($json) }}",
+        },
+      },
+    ],
+    documentationUrl: "https://docs.n8n.io/integrations/builtin/app-nodes/n8n-nodes-base.kafka/",
+  },
+
+  "n8n-nodes-base.mqtt": {
+    type: "n8n-nodes-base.mqtt",
+    displayName: "MQTT",
+    description: "Publish and subscribe to MQTT topics for IoT messaging",
+    category: "database",
+    typeVersion: 1,
+    inputs: ["main"],
+    outputs: ["main"],
+    credentials: [
+      { name: "mqtt", required: true, description: "MQTT broker credentials" },
+    ],
+    parameters: [
+      {
+        name: "topic",
+        type: "string",
+        required: true,
+        default: "",
+        description: "MQTT topic",
+      },
+      {
+        name: "message",
+        type: "string",
+        required: true,
+        default: "",
+        description: "Message to publish",
+      },
+      {
+        name: "options",
+        type: "collection",
+        required: false,
+        default: {},
+        description: "Additional options like QoS, retain",
+      },
+    ],
+    examples: [
+      {
+        name: "Publish Message",
+        description: "Publish to MQTT topic",
+        parameters: {
+          topic: "sensors/temperature",
+          message: "={{ $json.value }}",
+        },
+      },
+    ],
+    documentationUrl: "https://docs.n8n.io/integrations/builtin/app-nodes/n8n-nodes-base.mqtt/",
+  },
+
+  "n8n-nodes-base.rabbitMq": {
+    type: "n8n-nodes-base.rabbitMq",
+    displayName: "RabbitMQ",
+    description: "Send and receive messages from RabbitMQ queues",
+    category: "database",
+    typeVersion: 1,
+    inputs: ["main"],
+    outputs: ["main"],
+    credentials: [
+      { name: "rabbitmq", required: true, description: "RabbitMQ credentials" },
+    ],
+    parameters: [
+      {
+        name: "queue",
+        type: "string",
+        required: true,
+        default: "",
+        description: "Queue name",
+      },
+      {
+        name: "message",
+        type: "string",
+        required: true,
+        default: "",
+        description: "Message to send",
+      },
+      {
+        name: "options",
+        type: "collection",
+        required: false,
+        default: {},
+        description: "Additional options like exchange, routing key",
+      },
+    ],
+    examples: [
+      {
+        name: "Send to Queue",
+        description: "Send message to RabbitMQ queue",
+        parameters: {
+          queue: "tasks",
+          message: "={{ JSON.stringify($json) }}",
+        },
+      },
+    ],
+    documentationUrl: "https://docs.n8n.io/integrations/builtin/app-nodes/n8n-nodes-base.rabbitmq/",
+  },
+
+  "n8n-nodes-base.splunk": {
+    type: "n8n-nodes-base.splunk",
+    displayName: "Splunk",
+    description: "Search, send events, and manage Splunk data",
+    category: "database",
+    typeVersion: 1,
+    inputs: ["main"],
+    outputs: ["main"],
+    credentials: [
+      { name: "splunkApi", required: true, description: "Splunk API credentials" },
+    ],
+    parameters: [
+      {
+        name: "resource",
+        type: "options",
+        required: true,
+        default: "search",
+        description: "Resource to operate on",
+        options: [
+          { name: "Fired Alert", value: "firedAlert", description: "Get fired alerts" },
+          { name: "Search Job", value: "searchJob", description: "Manage search jobs" },
+          { name: "Search Result", value: "searchResult", description: "Get search results" },
+          { name: "User", value: "user", description: "Manage users" },
+        ],
+      },
+      {
+        name: "operation",
+        type: "options",
+        required: true,
+        default: "create",
+        description: "Operation to perform",
+        options: [
+          { name: "Create", value: "create", description: "Create a search job" },
+          { name: "Delete", value: "delete", description: "Delete a search job" },
+          { name: "Get", value: "get", description: "Get search job details" },
+          { name: "Get All", value: "getAll", description: "Get all search jobs" },
+        ],
+        displayOptions: { show: { resource: ["searchJob"] } },
+      },
+      {
+        name: "search",
+        type: "string",
+        required: true,
+        default: "",
+        description: "Splunk search query",
+        displayOptions: { show: { resource: ["searchJob"], operation: ["create"] } },
+      },
+    ],
+    examples: [
+      {
+        name: "Run Search",
+        description: "Create a Splunk search job",
+        parameters: {
+          resource: "searchJob",
+          operation: "create",
+          search: "search index=main error",
+        },
+      },
+    ],
+    documentationUrl: "https://docs.n8n.io/integrations/builtin/app-nodes/n8n-nodes-base.splunk/",
+  },
 };
