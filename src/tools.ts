@@ -155,6 +155,9 @@ CONNECTIONS FORMAT:
   }
 }
 
+TIP: typeVersion is auto-detected from the built-in node catalog when omitted.
+Use get_node_schema to check correct parameters for each node version.
+
 NOTE: The 'active' field is READ-ONLY. Use activate_workflow tool after creation.`,
     {
       name: z.string().describe("Workflow name"),

@@ -279,6 +279,9 @@ export const WORKFLOW_TEMPLATES: Record<string, WorkflowTemplate> = {
       "Download Image": {
         main: [[{ node: "Extract with GPT-4o Vision", type: "main", index: 0 }]],
       },
+      "Extract with GPT-4o Vision": {
+        main: [[{ node: "Create Notion Entry", type: "main", index: 0 }]],
+      },
     },
   },
 };
