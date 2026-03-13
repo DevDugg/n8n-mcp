@@ -1,5 +1,6 @@
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { N8nClient } from "./n8n-client.js";
+import { WORKFLOW_EXAMPLES, getWorkflowExample, getAllWorkflowExampleNames } from "./examples.js";
 
 export function registerResources(server: McpServer, n8nClient: N8nClient): void {
   // Static resource: All workflows list
@@ -131,6 +132,76 @@ export function registerResources(server: McpServer, n8nClient: N8nClient): void
             uri: uri.href,
             mimeType: "application/json",
             text: JSON.stringify(result.data, null, 2),
+          },
+        ],
+      };
+    }
+  );
+
+  // Static resource: List all golden-path workflow examples
+  server.resource(
+    "workflow-examples",
+    "n8n://examples",
+    {
+      description: "List of all golden-path workflow examples with descriptions, patterns, and tags",
+      mimeType: "application/json",
+    },
+    async (uri) => {
+      const names = getAllWorkflowExampleNames();
+      const summary = names.map(name => {
+        const example = WORKFLOW_EXAMPLES[name];
+        return {
+          name,
+          displayName: example.name,
+          description: example.description,
+          pattern: example.pattern,
+          tags: example.tags,
+          nodeCount: example.nodes.length,
+        };
+      });
+      return {
+        contents: [
+          {
+            uri: uri.href,
+            mimeType: "application/json",
+            text: JSON.stringify(summary, null, 2),
+          },
+        ],
+      };
+    }
+  );
+
+  // Dynamic resource: Individual workflow example with full definition
+  server.resource(
+    "workflow-example",
+    new ResourceTemplate("n8n://examples/{exampleName}", { list: undefined }),
+    {
+      description: "Complete golden-path workflow example with annotated nodes, connections, and ready-to-use JSON",
+      mimeType: "application/json",
+    },
+    async (uri, { exampleName }) => {
+      const example = getWorkflowExample(exampleName as string);
+      if (!example) {
+        const available = getAllWorkflowExampleNames();
+        return {
+          contents: [
+            {
+              uri: uri.href,
+              mimeType: "application/json",
+              text: JSON.stringify({
+                error: `Example '${exampleName}' not found`,
+                available,
+              }, null, 2),
+            },
+          ],
+        };
+      }
+      return {
+        contents: [
+          {
+            uri: uri.href,
+            mimeType: "application/json",
+            text: JSON.stringify(example, null, 2),
           },
         ],
       };
