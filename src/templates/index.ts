@@ -77,6 +77,7 @@ export const WORKFLOW_TEMPLATES: Record<string, WorkflowTemplate> = {
         type: "n8n-nodes-base.googleSheets",
         position: [650, 300],
         parameters: {
+          resource: "sheet",
           operation: "append",
           documentId: "your-sheet-id",
           sheetName: "Sheet1",
@@ -109,11 +110,11 @@ export const WORKFLOW_TEMPLATES: Record<string, WorkflowTemplate> = {
         position: [450, 300],
         parameters: {
           conditions: {
-            string: [
+            conditions: [
               {
-                value1: "={{ $json.status }}",
-                operation: "equals",
-                value2: "approved",
+                leftValue: "={{ $json.status }}",
+                rightValue: "approved",
+                operator: { type: "string", operation: "equals" },
               },
             ],
           },
@@ -173,16 +174,13 @@ export const WORKFLOW_TEMPLATES: Record<string, WorkflowTemplate> = {
         position: [200, 300],
         parameters: {
           conditions: {
-            options: { caseSensitive: true, leftValue: "", typeValidation: "strict" },
             conditions: [
               {
-                id: "has_photo",
                 leftValue: "={{ $json.message.photo }}",
                 rightValue: "",
                 operator: { type: "array", operation: "notEmpty" },
               },
             ],
-            combinator: "or",
           },
         },
       },
