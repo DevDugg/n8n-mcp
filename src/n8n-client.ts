@@ -308,8 +308,9 @@ export class N8nClient {
     return this.request(`/executions${queryString ? `?${queryString}` : ""}`);
   }
 
-  async getExecution(id: string): Promise<Execution> {
-    return this.request(`/executions/${encodeURIComponent(id)}`);
+  async getExecution(id: string, includeData = false): Promise<Execution> {
+    const query = includeData ? "?includeData=true" : "";
+    return this.request(`/executions/${encodeURIComponent(id)}${query}`);
   }
 
   async deleteExecution(id: string): Promise<void> {
@@ -361,6 +362,82 @@ export class N8nClient {
       method: "POST",
       body: JSON.stringify({ categories }),
     });
+  }
+
+  // ============ WORKFLOW EXECUTION ============
+
+  /**
+   * Execute a workflow by ID and wait for completion.
+   * Tries the public API endpoint POST /workflows/{id}/execute first.
+   * Falls back to POST /workflows/{id}/run if not available.
+   * Returns the execution ID for result inspection.
+   */
+  async executeWorkflow(
+    id: string,
+    payload?: Record<string, unknown>
+  ): Promise<{ executionId: string }> {
+    // Try public API endpoint first (available in newer n8n versions)
+    try {
+      const result = await this.request<{ data: { id: string } }>(
+        `/workflows/${encodeURIComponent(id)}/execute`,
+        {
+          method: "POST",
+          body: JSON.stringify(payload ?? {}),
+        }
+      );
+      return { executionId: result.data?.id ?? (result as unknown as { id: string }).id };
+    } catch (error) {
+      if (error instanceof N8nApiError && error.statusCode === 404) {
+        logger.info("Public execute endpoint not available, trying /run fallback");
+      } else {
+        throw error;
+      }
+    }
+
+    // Fallback: try the /run endpoint
+    try {
+      const result = await this.request<{ data: { id: string } }>(
+        `/workflows/${encodeURIComponent(id)}/run`,
+        {
+          method: "POST",
+          body: JSON.stringify(payload ?? {}),
+        }
+      );
+      return { executionId: result.data?.id ?? (result as unknown as { id: string }).id };
+    } catch (error) {
+      if (error instanceof N8nApiError && error.statusCode === 404) {
+        throw new N8nApiError(
+          "Workflow execution endpoint not available. Your n8n version may not support programmatic execution via the public API. " +
+          "Workaround: Add a Webhook trigger node to the workflow and use execute_webhook instead, or upgrade n8n.",
+          404,
+          `/workflows/${id}/execute`,
+          false
+        );
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Poll for an execution to finish, then return full data.
+   */
+  async waitForExecution(
+    executionId: string,
+    options: { timeoutMs?: number; pollIntervalMs?: number } = {}
+  ): Promise<Execution> {
+    const timeout = options.timeoutMs ?? 120000;
+    const pollInterval = options.pollIntervalMs ?? 2000;
+    const start = Date.now();
+
+    while (Date.now() - start < timeout) {
+      const execution = await this.getExecution(executionId, true);
+      if (execution.finished || execution.status === "error" || execution.status === "crashed") {
+        return execution;
+      }
+      await this.sleep(pollInterval);
+    }
+
+    throw new N8nTimeoutError(`/executions/${executionId} (polling)`, timeout);
   }
 
   // ============ WEBHOOK EXECUTION ============
