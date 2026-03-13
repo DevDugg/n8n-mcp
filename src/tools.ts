@@ -15,6 +15,13 @@ import {
   type NodeCategory,
 } from "./node-catalog.js";
 
+// Helper to resolve the correct typeVersion for a node
+function resolveTypeVersion(nodeType: string, explicit?: number): number {
+  if (explicit !== undefined) return explicit;
+  const catalogNode = getNodeByType(nodeType);
+  return catalogNode?.typeVersion ?? 1;
+}
+
 // ============ SCHEMAS MATCHING n8n OpenAPI SPEC ============
 
 // Node schema - matches /components/schemas/node
@@ -22,7 +29,7 @@ const nodeSchema = z.object({
   id: z.string().optional().describe("Unique node ID (UUID format recommended)"),
   name: z.string().describe("Display name for the node"),
   type: z.string().describe("Node type (e.g., 'n8n-nodes-base.manualTrigger')"),
-  typeVersion: z.number().default(1).describe("Node type version"),
+  typeVersion: z.number().optional().describe("Node type version (auto-detected from catalog if omitted)"),
   position: z.array(z.number()).length(2).describe("Node position [x, y] on canvas"),
   parameters: z.record(z.unknown()).optional().describe("Node-specific parameters"),
   disabled: z.boolean().optional().describe("Whether the node is disabled"),
@@ -126,7 +133,7 @@ NODE OBJECT STRUCTURE:
 {
   "name": "My Node",              // Required: display name
   "type": "n8n-nodes-base.X",     // Required: node type
-  "typeVersion": 1,               // Required: version number
+  "typeVersion": 2,               // Optional: auto-detected from catalog if omitted
   "position": [250, 300],         // Required: [x, y] coordinates
   "parameters": {},               // Optional: node-specific config
   "id": "uuid-here"               // Optional: auto-generated if omitted
@@ -163,7 +170,7 @@ NOTE: The 'active' field is READ-ONLY. Use activate_workflow tool after creation
             id: n.id || `${Date.now()}-${idx}`,
             name: n.name,
             type: n.type,
-            typeVersion: n.typeVersion ?? 1,
+            typeVersion: resolveTypeVersion(n.type, n.typeVersion),
             position: n.position as [number, number],
             parameters: n.parameters || {},
             ...(n.disabled !== undefined && { disabled: n.disabled }),
@@ -215,7 +222,7 @@ NOTE:
             id: n.id || `${Date.now()}-${idx}`,
             name: n.name,
             type: n.type,
-            typeVersion: n.typeVersion ?? 1,
+            typeVersion: resolveTypeVersion(n.type, n.typeVersion),
             position: n.position as [number, number],
             parameters: n.parameters || {},
             ...(n.disabled !== undefined && { disabled: n.disabled }),
@@ -748,7 +755,7 @@ Templates include:
             id: `template-${idx}`,
             name: n.name,
             type: n.type,
-            typeVersion: 1,
+            typeVersion: resolveTypeVersion(n.type),
             position: n.position,
             parameters: n.parameters,
           })),
