@@ -212,21 +212,40 @@ describe("N8nClient", () => {
     });
   });
 
-  describe("runWorkflow", () => {
-    it("should make POST to /run endpoint with data", async () => {
-      const inputData = { key: "value" };
-      const mockExecution = { id: "exec-1", status: "success" };
+  describe("executeWorkflow", () => {
+    it("should try /execute endpoint first", async () => {
+      const mockResponse = { data: { id: "exec-1" } };
 
       const fetchSpy = spyOn(global, "fetch").mockResolvedValueOnce(
-        new Response(JSON.stringify(mockExecution), { status: 200 })
+        new Response(JSON.stringify(mockResponse), { status: 200 })
       );
 
-      const result = await client.runWorkflow("123", inputData);
+      const result = await client.executeWorkflow("123", { key: "value" });
 
-      expect(result.id).toBe("exec-1");
+      expect(result.executionId).toBe("exec-1");
 
-      const [, options] = fetchSpy.mock.calls[0] as [string, RequestInit];
-      expect(JSON.parse(options.body as string)).toEqual(inputData);
+      const calledUrl = (fetchSpy.mock.calls[0] as [string, RequestInit])[0];
+      expect(calledUrl).toContain("/workflows/123/execute");
+
+      fetchSpy.mockRestore();
+    });
+
+    it("should fall back to /run when /execute returns 404", async () => {
+      const mockRunResponse = { data: { id: "exec-2" } };
+
+      const fetchSpy = spyOn(global, "fetch")
+        .mockResolvedValueOnce(new Response("Not found", { status: 404 }))
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify(mockRunResponse), { status: 200 })
+        );
+
+      const result = await client.executeWorkflow("123");
+
+      expect(result.executionId).toBe("exec-2");
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+
+      const secondUrl = (fetchSpy.mock.calls[1] as [string, RequestInit])[0];
+      expect(secondUrl).toContain("/workflows/123/run");
 
       fetchSpy.mockRestore();
     });
@@ -258,9 +277,12 @@ describe("N8nClient", () => {
         password: "pass",
       });
 
+      const calledUrl = (fetchSpy.mock.calls[0] as [string, RequestInit])[0];
+      expect(calledUrl).toContain("/webhook/my-webhook");
+      // Auth header is set via the headers object passed to fetch
       const [, options] = fetchSpy.mock.calls[0] as [string, RequestInit];
-      const headers = options.headers as Record<string, string>;
-      expect(headers["Authorization"]).toContain("Basic");
+      const headers = new Headers(options.headers as HeadersInit);
+      expect(headers.get("Authorization")).toContain("Basic");
 
       fetchSpy.mockRestore();
     });
@@ -275,8 +297,8 @@ describe("N8nClient", () => {
       await client.listWorkflows();
 
       const [, options] = fetchSpy.mock.calls[0] as [string, RequestInit];
-      const headers = options.headers as Record<string, string>;
-      expect(headers["X-N8N-API-KEY"]).toBe(mockApiKey);
+      const headers = new Headers(options.headers as HeadersInit);
+      expect(headers.get("X-N8N-API-KEY")).toBe(mockApiKey);
 
       fetchSpy.mockRestore();
     });

@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { N8nClient } from "./n8n-client.js";
+import type { Execution, Workflow } from "./n8n-client.js";
 import {
   NODE_CATALOG,
   WORKFLOW_TEMPLATES,
@@ -20,6 +21,285 @@ function resolveTypeVersion(nodeType: string, explicit?: number): number {
   if (explicit !== undefined) return explicit;
   const catalogNode = getNodeByType(nodeType);
   return catalogNode?.typeVersion ?? 1;
+}
+
+// ============ EXECUTION ANALYSIS HELPERS ============
+
+interface NodeRunData {
+  startTime?: number;
+  executionTime?: number;
+  executionStatus?: string;
+  error?: { message?: string; description?: string; stack?: string };
+  data?: {
+    main?: Array<Array<{ json: Record<string, unknown> }>>;
+  };
+  metadata?: Record<string, unknown>;
+}
+
+function extractRunData(execution: Execution): Record<string, NodeRunData[]> {
+  const data = execution.data as Record<string, unknown> | undefined;
+  if (!data) return {};
+
+  const resultData = data.resultData as Record<string, unknown> | undefined;
+  if (!resultData) return {};
+
+  return (resultData.runData as Record<string, NodeRunData[]>) ?? {};
+}
+
+function extractLastError(execution: Execution): { node?: string; message?: string } | undefined {
+  const data = execution.data as Record<string, unknown> | undefined;
+  if (!data) return undefined;
+
+  const resultData = data.resultData as Record<string, unknown> | undefined;
+  if (!resultData) return undefined;
+
+  const lastNodeExecuted = resultData.lastNodeExecuted as string | undefined;
+  const error = resultData.error as { message?: string } | undefined;
+
+  if (lastNodeExecuted || error) {
+    return { node: lastNodeExecuted, message: error?.message };
+  }
+  return undefined;
+}
+
+function formatExecutionSummary(execution: Execution): string {
+  const lines: string[] = [];
+  lines.push(`Execution ID: ${execution.id}`);
+  lines.push(`Status: ${execution.status}`);
+  lines.push(`Started: ${execution.startedAt}`);
+  lines.push(`Finished: ${execution.stoppedAt || "still running"}`);
+  lines.push("");
+
+  const runData = extractRunData(execution);
+  const nodeNames = Object.keys(runData);
+
+  if (nodeNames.length === 0) {
+    lines.push("No per-node data available. Ensure n8n is configured to save execution data.");
+    lines.push(`\nRaw execution:\n${JSON.stringify(execution, null, 2)}`);
+    return lines.join("\n");
+  }
+
+  lines.push(`Nodes executed: ${nodeNames.length}`);
+  lines.push("");
+
+  for (const nodeName of nodeNames) {
+    const runs = runData[nodeName];
+    for (const run of runs) {
+      const status = run.error ? "FAILED" : (run.executionStatus || "success");
+      const time = run.executionTime != null ? `${run.executionTime}ms` : "?";
+      lines.push(`  [${status}] ${nodeName} (${time})`);
+
+      if (run.error) {
+        lines.push(`    Error: ${run.error.message || "Unknown error"}`);
+        if (run.error.description) {
+          lines.push(`    Detail: ${run.error.description}`);
+        }
+      }
+
+      // Show output item count
+      if (run.data?.main) {
+        const itemCounts = run.data.main.map((output, i) =>
+          `output[${i}]: ${output?.length ?? 0} items`
+        );
+        lines.push(`    Data: ${itemCounts.join(", ")}`);
+      }
+    }
+  }
+
+  return lines.join("\n");
+}
+
+function diagnoseExecution(execution: Execution): string {
+  const lines: string[] = [];
+  const runData = extractRunData(execution);
+  const nodeNames = Object.keys(runData);
+  const lastError = extractLastError(execution);
+
+  if (nodeNames.length === 0) {
+    if (execution.status === "error") {
+      lines.push("Execution failed but no per-node data is available.");
+      lines.push("This usually means the workflow failed before any node could run.");
+      lines.push("");
+      if (lastError) {
+        lines.push(`Last error: ${lastError.message || "Unknown"}`);
+        if (lastError.node) lines.push(`Failed at: ${lastError.node}`);
+      }
+      lines.push("");
+      lines.push("Common causes:");
+      lines.push("- Invalid workflow structure (missing connections)");
+      lines.push("- Missing credentials");
+      lines.push("- Trigger node configuration error");
+    } else {
+      lines.push("No execution data available. Check n8n settings:");
+      lines.push("- Settings → Save Manual Executions: enabled");
+      lines.push("- Settings → Save Execution Progress: enabled");
+    }
+    lines.push(`\nRaw execution:\n${JSON.stringify(execution, null, 2)}`);
+    return lines.join("\n");
+  }
+
+  const failed: string[] = [];
+  const slow: string[] = [];
+  const succeeded: string[] = [];
+
+  for (const nodeName of nodeNames) {
+    const runs = runData[nodeName];
+    for (const run of runs) {
+      if (run.error) {
+        failed.push(nodeName);
+        lines.push(`### FAILED: ${nodeName}`);
+        lines.push(`- Error: ${run.error.message || "Unknown"}`);
+        if (run.error.description) {
+          lines.push(`- Description: ${run.error.description}`);
+        }
+        if (run.error.stack) {
+          // Show first 3 lines of stack
+          const stackLines = run.error.stack.split("\n").slice(0, 3);
+          lines.push(`- Stack: ${stackLines.join("\n  ")}`);
+        }
+        lines.push(classifyError(nodeName, run.error));
+        lines.push("");
+      } else {
+        succeeded.push(nodeName);
+        if (run.executionTime != null && run.executionTime > 10000) {
+          slow.push(`${nodeName} (${run.executionTime}ms)`);
+        }
+      }
+    }
+  }
+
+  // Add last node error info if available
+  if (lastError && lastError.node && !failed.includes(lastError.node)) {
+    lines.push(`### FAILED: ${lastError.node} (workflow-level error)`);
+    lines.push(`- Error: ${lastError.message || "Unknown"}`);
+    lines.push("");
+  }
+
+  // Summary section
+  lines.push("### Summary");
+  lines.push(`- Passed: ${succeeded.length} nodes (${succeeded.join(", ") || "none"})`);
+  lines.push(`- Failed: ${failed.length} nodes (${failed.join(", ") || "none"})`);
+  if (slow.length > 0) {
+    lines.push(`- Slow (>10s): ${slow.join(", ")}`);
+  }
+
+  return lines.join("\n");
+}
+
+function classifyError(nodeName: string, error: { message?: string; description?: string }): string {
+  const msg = ((error.message || "") + " " + (error.description || "")).toLowerCase();
+
+  if (msg.includes("credential") || msg.includes("authentication") || msg.includes("unauthorized") || msg.includes("401")) {
+    return `- Classification: CREDENTIALS_MISSING — Configure credentials for "${nodeName}" in n8n Settings → Credentials`;
+  }
+  if (msg.includes("could not find property option") || msg.includes("property")) {
+    return `- Classification: WRONG_PARAMETER — A parameter value doesn't match the node's schema. Use get_node_schema to check valid options.`;
+  }
+  if (msg.includes("typeversion") || msg.includes("type version") || msg.includes("could not find node")) {
+    return `- Classification: WRONG_TYPE_VERSION — Node typeVersion may be incorrect. Use get_node_schema to find the correct version.`;
+  }
+  if (msg.includes("timeout") || msg.includes("timed out") || msg.includes("econnrefused")) {
+    return `- Classification: CONNECTION_ERROR — The target service is unreachable. Check URL, network, and service availability.`;
+  }
+  if (msg.includes("rate limit") || msg.includes("429") || msg.includes("too many")) {
+    return `- Classification: RATE_LIMITED — Slow down requests or add a Wait node before this node.`;
+  }
+  if (msg.includes("expression") || msg.includes("referenceerror") || msg.includes("typeerror")) {
+    return `- Classification: EXPRESSION_ERROR — An n8n expression failed. Check that referenced fields exist. Use get_expression_help for syntax.`;
+  }
+  if (msg.includes("json") || msg.includes("parse") || msg.includes("unexpected token")) {
+    return `- Classification: PARSE_ERROR — Response is not valid JSON. Check the URL or add a response format option.`;
+  }
+  if (msg.includes("404") || msg.includes("not found")) {
+    return `- Classification: NOT_FOUND — The requested resource/endpoint doesn't exist. Check URLs and IDs.`;
+  }
+  if (msg.includes("permission") || msg.includes("403") || msg.includes("forbidden")) {
+    return `- Classification: PERMISSION_DENIED — Insufficient permissions. Check API key scopes or user permissions.`;
+  }
+  return `- Classification: UNKNOWN — Review the error message and node configuration.`;
+}
+
+function generateFixPlan(workflow: Workflow, execution: Execution): string {
+  const lines: string[] = [];
+  const runData = extractRunData(execution);
+  const lastError = extractLastError(execution);
+
+  if (execution.status === "success") {
+    lines.push("No fixes needed — all nodes executed successfully.");
+    return lines.join("\n");
+  }
+
+  const failedNodes: Array<{ name: string; error: { message?: string; description?: string } }> = [];
+
+  for (const nodeName of Object.keys(runData)) {
+    for (const run of runData[nodeName]) {
+      if (run.error) {
+        failedNodes.push({ name: nodeName, error: run.error });
+      }
+    }
+  }
+
+  // Also check workflow-level last error
+  if (lastError?.node && !failedNodes.find(n => n.name === lastError.node)) {
+    failedNodes.push({ name: lastError.node, error: { message: lastError.message } });
+  }
+
+  if (failedNodes.length === 0) {
+    lines.push("Execution failed but no specific node errors were captured.");
+    lines.push("Try running the workflow in the n8n editor for more details.");
+    return lines.join("\n");
+  }
+
+  lines.push(`${failedNodes.length} node(s) need fixes:\n`);
+
+  for (const { name, error } of failedNodes) {
+    const workflowNode = workflow.nodes.find(n => n.name === name);
+    const msg = ((error.message || "") + " " + (error.description || "")).toLowerCase();
+    lines.push(`### ${name} (${workflowNode?.type || "unknown"})`);
+
+    if (msg.includes("credential") || msg.includes("authentication") || msg.includes("401")) {
+      lines.push("**Fix**: Add or update credentials for this node.");
+      lines.push("1. In n8n UI: Settings → Credentials → Add credential for this service");
+      lines.push("2. Then update the node's credentials field via update_workflow");
+      if (workflowNode) {
+        const catalogNode = getNodeByType(workflowNode.type);
+        if (catalogNode?.credentials?.length) {
+          lines.push(`3. Required credential types: ${catalogNode.credentials.map(c => c.name).join(", ")}`);
+        }
+      }
+    } else if (msg.includes("could not find property option") || msg.includes("property")) {
+      lines.push("**Fix**: A parameter has an invalid value for this node version.");
+      lines.push("1. Use get_node_schema to see valid parameter options");
+      lines.push("2. Update the node parameters via update_workflow");
+      if (workflowNode) {
+        lines.push(`3. Current parameters: ${JSON.stringify(workflowNode.parameters, null, 2)}`);
+      }
+    } else if (msg.includes("expression") || msg.includes("referenceerror")) {
+      lines.push("**Fix**: An expression references data that doesn't exist.");
+      lines.push("1. Check that the previous node outputs the expected fields");
+      lines.push("2. Use {{ $json.fieldName }} syntax to reference output data");
+      lines.push("3. Add a Set node before this one to ensure required fields exist");
+    } else if (msg.includes("timeout") || msg.includes("econnrefused")) {
+      lines.push("**Fix**: Cannot reach the target service.");
+      lines.push("1. Verify the URL/host is correct and accessible from the n8n server");
+      lines.push("2. Check if the service requires VPN or allowlisting");
+      lines.push("3. Consider increasing the node's timeout setting");
+    } else {
+      lines.push(`**Error**: ${error.message || "Unknown"}`);
+      lines.push("1. Review the error message above");
+      lines.push("2. Use get_node_schema to check correct configuration");
+      lines.push("3. Verify all required parameters are set");
+    }
+
+    lines.push("");
+  }
+
+  lines.push("### Next Steps");
+  lines.push("1. Apply fixes using update_workflow");
+  lines.push("2. Run self_heal_workflow again to verify");
+  lines.push("3. Repeat until all nodes pass");
+
+  return lines.join("\n");
 }
 
 // ============ SCHEMAS MATCHING n8n OpenAPI SPEC ============
@@ -154,6 +434,9 @@ CONNECTIONS FORMAT:
     "main": [[{ "node": "Target Node Name", "type": "main", "index": 0 }]]
   }
 }
+
+TIP: typeVersion is auto-detected from the built-in node catalog when omitted.
+Use get_node_schema to check correct parameters for each node version.
 
 NOTE: The 'active' field is READ-ONLY. Use activate_workflow tool after creation.`,
     {
@@ -410,6 +693,163 @@ The webhook URL format is: {n8n_base_url}/webhook/{path}`,
           content: [{
             type: "text",
             text: `Webhook executed!\n\nResponse:\n${JSON.stringify(result, null, 2)}`,
+          }],
+        };
+      } catch (error) {
+        return {
+          content: [{ type: "text", text: `Error: ${(error as Error).message}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // ============ WORKFLOW EXECUTION & SELF-HEALING TOOLS ============
+
+  server.tool(
+    "execute_workflow",
+    `Execute a workflow programmatically and return the execution results.
+
+This tool:
+1. Triggers the workflow by ID
+2. Waits for it to finish (up to 2 minutes)
+3. Returns per-node execution results with inputs/outputs
+
+REQUIREMENTS:
+- The workflow must exist
+- For webhook-triggered workflows, use execute_webhook instead
+- Works best with workflows that have a Manual Trigger node
+
+RETURNS: Full execution data including per-node results (data.resultData.runData).`,
+    {
+      workflowId: z.string().describe("The workflow ID to execute"),
+      payload: z.record(z.unknown()).optional().describe("Optional input data to pass to the workflow"),
+      timeoutMs: z.number().int().min(5000).max(300000).default(120000).describe("Max time to wait for completion (ms)"),
+    },
+    async ({ workflowId, payload, timeoutMs }) => {
+      try {
+        const { executionId } = await n8nClient.executeWorkflow(workflowId, payload);
+        const execution = await n8nClient.waitForExecution(executionId, { timeoutMs });
+
+        const summary = formatExecutionSummary(execution);
+        return {
+          content: [{
+            type: "text",
+            text: summary,
+          }],
+        };
+      } catch (error) {
+        return {
+          content: [{ type: "text", text: `Error executing workflow: ${(error as Error).message}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  server.tool(
+    "diagnose_execution",
+    `Analyze a workflow execution to identify errors, bottlenecks, and issues.
+
+This tool inspects the per-node execution data and returns:
+- Which nodes succeeded/failed
+- Error messages and stack traces from failed nodes
+- Execution time per node (identifies slow nodes)
+- Data flow summary (what each node received/produced)
+- Specific fix suggestions based on common error patterns
+
+Use this after execute_workflow or on any execution ID from list_executions.`,
+    {
+      executionId: z.string().describe("The execution ID to diagnose"),
+    },
+    async ({ executionId }) => {
+      try {
+        const execution = await n8nClient.getExecution(executionId, true);
+        const diagnosis = diagnoseExecution(execution);
+        return {
+          content: [{
+            type: "text",
+            text: diagnosis,
+          }],
+        };
+      } catch (error) {
+        return {
+          content: [{ type: "text", text: `Error: ${(error as Error).message}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  server.tool(
+    "self_heal_workflow",
+    `Execute a workflow, diagnose any failures, and return a detailed fix plan.
+
+This is the self-healing loop:
+1. Execute the workflow
+2. Inspect per-node results
+3. Identify failures with root cause analysis
+4. Generate specific fix instructions (which nodes to change and how)
+
+After getting the fix plan, use update_workflow to apply the fixes, then run self_heal_workflow again to verify.
+
+This is the recommended workflow development cycle:
+  create_workflow → self_heal_workflow → update_workflow → self_heal_workflow → ...
+  (repeat until all nodes pass)`,
+    {
+      workflowId: z.string().describe("The workflow ID to test and heal"),
+      payload: z.record(z.unknown()).optional().describe("Optional test input data"),
+      timeoutMs: z.number().int().min(5000).max(300000).default(120000).describe("Max time to wait (ms)"),
+    },
+    async ({ workflowId, payload, timeoutMs }) => {
+      try {
+        // Step 1: Get the workflow definition
+        const workflow = await n8nClient.getWorkflow(workflowId);
+
+        // Step 2: Execute
+        let execution: Execution;
+        try {
+          const { executionId } = await n8nClient.executeWorkflow(workflowId, payload);
+          execution = await n8nClient.waitForExecution(executionId, { timeoutMs });
+        } catch (execError) {
+          // If execution endpoint isn't available, check recent executions
+          const recent = await n8nClient.listExecutions({ workflowId, limit: 1 });
+          if (recent.data.length > 0) {
+            execution = await n8nClient.getExecution(recent.data[0].id, true);
+          } else {
+            return {
+              content: [{
+                type: "text",
+                text: `Could not execute workflow: ${(execError as Error).message}\n\n` +
+                  `No recent executions found either. Try:\n` +
+                  `1. Run the workflow manually in the n8n editor\n` +
+                  `2. Use execute_webhook if it has a webhook trigger\n` +
+                  `3. Then run diagnose_execution on the resulting execution ID`,
+              }],
+              isError: true,
+            };
+          }
+        }
+
+        // Step 3: Diagnose
+        const diagnosis = diagnoseExecution(execution);
+
+        // Step 4: Generate fix plan
+        const fixPlan = generateFixPlan(workflow, execution);
+
+        const status = execution.status === "success" ? "ALL NODES PASSED" : "ISSUES FOUND";
+
+        return {
+          content: [{
+            type: "text",
+            text: `# Self-Heal Report: ${workflow.name} (${status})\n\n` +
+              `## Execution Summary\n` +
+              `- Execution ID: ${execution.id}\n` +
+              `- Status: ${execution.status}\n` +
+              `- Started: ${execution.startedAt}\n` +
+              `- Finished: ${execution.stoppedAt || "N/A"}\n\n` +
+              `## Per-Node Diagnosis\n${diagnosis}\n\n` +
+              `## Fix Plan\n${fixPlan}`,
           }],
         };
       } catch (error) {
