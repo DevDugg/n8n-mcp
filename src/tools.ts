@@ -12,15 +12,271 @@ import {
   searchNodes,
   getWorkflowTemplate,
   getAllWorkflowTemplates,
+  isValidNodeType,
   type NodeSchema,
   type NodeCategory,
 } from "./node-catalog.js";
+import { WORKFLOW_EXAMPLES, getWorkflowExample, getAllWorkflowExampleNames } from "./examples.js";
 
 // Helper to resolve the correct typeVersion for a node
 function resolveTypeVersion(nodeType: string, explicit?: number): number {
   if (explicit !== undefined) return explicit;
   const catalogNode = getNodeByType(nodeType);
   return catalogNode?.typeVersion ?? 1;
+}
+
+// ============ WORKFLOW VALIDATION ============
+
+interface ValidationIssue {
+  severity: "error" | "warning";
+  node?: string;
+  field?: string;
+  message: string;
+  suggestion?: string;
+}
+
+interface ValidationResult {
+  valid: boolean;
+  errors: ValidationIssue[];
+  warnings: ValidationIssue[];
+  summary: string;
+}
+
+function validateWorkflowDefinition(
+  nodes: Array<{
+    name: string;
+    type: string;
+    typeVersion?: number;
+    position: number[];
+    parameters?: Record<string, unknown>;
+    credentials?: Record<string, unknown>;
+  }>,
+  connections: Record<string, { main: Array<Array<{ node: string; type: string; index: number }>> }>,
+  availableCredentialTypes?: string[],
+): ValidationResult {
+  const issues: ValidationIssue[] = [];
+  const nodeNames = new Set(nodes.map(n => n.name));
+
+  // 1. Check for duplicate node names
+  const nameCounts = new Map<string, number>();
+  for (const node of nodes) {
+    nameCounts.set(node.name, (nameCounts.get(node.name) || 0) + 1);
+  }
+  for (const [name, count] of nameCounts) {
+    if (count > 1) {
+      issues.push({
+        severity: "error",
+        node: name,
+        message: `Duplicate node name "${name}" used ${count} times. Each node must have a unique name.`,
+        suggestion: `Rename duplicates to "${name} 1", "${name} 2", etc.`,
+      });
+    }
+  }
+
+  // 2. Check that every node type exists in the catalog
+  for (const node of nodes) {
+    if (!isValidNodeType(node.type)) {
+      const typeLower = node.type.toLowerCase().replace("n8n-nodes-base.", "");
+      const allTypes = getAllNodeTypes();
+      const suggestions = allTypes
+        .filter(t => t.toLowerCase().includes(typeLower))
+        .slice(0, 3);
+
+      issues.push({
+        severity: "error",
+        node: node.name,
+        field: "type",
+        message: `Unknown node type "${node.type}".`,
+        suggestion: suggestions.length > 0
+          ? `Did you mean: ${suggestions.join(", ")}? Use search_nodes or get_node_types to find the correct type.`
+          : `Use search_nodes or get_node_types to find valid node types.`,
+      });
+    }
+  }
+
+  // 3. Check for trigger node presence
+  const triggerNodes = nodes.filter(n => {
+    const schema = getNodeByType(n.type);
+    return schema?.category === "trigger";
+  });
+  if (triggerNodes.length === 0) {
+    issues.push({
+      severity: "warning",
+      message: "No trigger node found. Workflows typically need a trigger (e.g., manualTrigger, webhook, scheduleTrigger) to start execution.",
+      suggestion: "Add a trigger node like n8n-nodes-base.manualTrigger as the first node.",
+    });
+  }
+
+  // 4. Check required parameters for each node
+  for (const node of nodes) {
+    const schema = getNodeByType(node.type);
+    if (!schema) continue;
+
+    for (const param of schema.parameters) {
+      if (param.required && (!node.parameters || node.parameters[param.name] === undefined)) {
+        // Check displayOptions to see if the parameter is actually active
+        if (param.displayOptions?.show) {
+          // Only flag if the display condition is met
+          let conditionMet = true;
+          for (const [key, values] of Object.entries(param.displayOptions.show)) {
+            const nodeValue = node.parameters?.[key];
+            if (!values.includes(nodeValue)) {
+              conditionMet = false;
+              break;
+            }
+          }
+          if (!conditionMet) continue;
+        }
+
+        issues.push({
+          severity: "error",
+          node: node.name,
+          field: param.name,
+          message: `Required parameter "${param.name}" is missing.`,
+          suggestion: `${param.description}${param.default !== undefined ? ` (default: ${JSON.stringify(param.default)})` : ""}. Use get_node_schema("${node.type}") for details.`,
+        });
+      }
+    }
+  }
+
+  // 5. Check that node credential types are valid (if catalog has credential info)
+  for (const node of nodes) {
+    const schema = getNodeByType(node.type);
+    if (!schema?.credentials?.length) continue;
+
+    const requiredCreds = schema.credentials.filter(c => c.required);
+    if (requiredCreds.length > 0 && !node.credentials) {
+      issues.push({
+        severity: "warning",
+        node: node.name,
+        field: "credentials",
+        message: `Node "${node.name}" (${node.type}) typically requires credentials: ${requiredCreds.map(c => c.name).join(", ")}.`,
+        suggestion: "Use list_credentials to check available credentials, then add a credentials field to this node.",
+      });
+    }
+
+    // If credentials are provided, check types match what the node expects
+    if (node.credentials && availableCredentialTypes) {
+      for (const [credType] of Object.entries(node.credentials)) {
+        const validCredTypes = schema.credentials.map(c => c.name);
+        if (!validCredTypes.includes(credType)) {
+          issues.push({
+            severity: "error",
+            node: node.name,
+            field: "credentials",
+            message: `Credential type "${credType}" is not valid for node type "${node.type}".`,
+            suggestion: `Valid credential types: ${validCredTypes.join(", ")}`,
+          });
+        }
+      }
+    }
+  }
+
+  // 6. Validate connections — check that source and target nodes exist
+  for (const [sourceName, conn] of Object.entries(connections)) {
+    if (!nodeNames.has(sourceName)) {
+      issues.push({
+        severity: "error",
+        field: "connections",
+        message: `Connection source "${sourceName}" does not match any node name.`,
+        suggestion: `Available node names: ${Array.from(nodeNames).join(", ")}`,
+      });
+    }
+
+    if (conn.main) {
+      for (const outputGroup of conn.main) {
+        for (const target of outputGroup) {
+          if (!nodeNames.has(target.node)) {
+            issues.push({
+              severity: "error",
+              field: "connections",
+              message: `Connection target "${target.node}" (from "${sourceName}") does not match any node name.`,
+              suggestion: `Available node names: ${Array.from(nodeNames).join(", ")}`,
+            });
+          }
+        }
+      }
+    }
+  }
+
+  // 7. Check for orphan nodes (not connected to anything, excluding triggers with 0 inputs)
+  const connectedNodes = new Set<string>();
+  for (const [sourceName, conn] of Object.entries(connections)) {
+    connectedNodes.add(sourceName);
+    if (conn.main) {
+      for (const outputGroup of conn.main) {
+        for (const target of outputGroup) {
+          connectedNodes.add(target.node);
+        }
+      }
+    }
+  }
+  for (const node of nodes) {
+    if (!connectedNodes.has(node.name)) {
+      const schema = getNodeByType(node.type);
+      // Single-node workflows (just a trigger) are fine
+      if (nodes.length === 1) continue;
+      // Trigger nodes at the start are OK if they appear as connection sources
+      if (schema?.category === "trigger") continue;
+      issues.push({
+        severity: "warning",
+        node: node.name,
+        message: `Node "${node.name}" is not connected to any other node (orphan).`,
+        suggestion: "Add connections to/from this node or remove it if unused.",
+      });
+    }
+  }
+
+  // 8. Check for overlapping positions
+  const posMap = new Map<string, string>();
+  for (const node of nodes) {
+    const key = `${node.position[0]},${node.position[1]}`;
+    if (posMap.has(key)) {
+      issues.push({
+        severity: "warning",
+        node: node.name,
+        message: `Node "${node.name}" overlaps with "${posMap.get(key)}" at position [${node.position[0]}, ${node.position[1]}].`,
+        suggestion: "Adjust positions so nodes don't overlap on the canvas. Use 200px spacing between nodes.",
+      });
+    }
+    posMap.set(key, node.name);
+  }
+
+  // 9. Validate typeVersion against catalog
+  for (const node of nodes) {
+    if (node.typeVersion !== undefined) {
+      const schema = getNodeByType(node.type);
+      if (schema && schema.typeVersion !== node.typeVersion) {
+        issues.push({
+          severity: "warning",
+          node: node.name,
+          field: "typeVersion",
+          message: `typeVersion ${node.typeVersion} specified, but catalog recommends version ${schema.typeVersion} for "${node.type}".`,
+          suggestion: `Omit typeVersion to auto-detect the correct version, or verify that version ${node.typeVersion} is intentional.`,
+        });
+      }
+    }
+  }
+
+  const errors = issues.filter(i => i.severity === "error");
+  const warnings = issues.filter(i => i.severity === "warning");
+
+  // Build summary
+  let summary: string;
+  if (errors.length === 0 && warnings.length === 0) {
+    summary = `Validation PASSED. The workflow definition looks correct with ${nodes.length} nodes and ${Object.keys(connections).length} connection sources.`;
+  } else if (errors.length === 0) {
+    summary = `Validation PASSED with ${warnings.length} warning(s). No blocking errors found, but review the warnings before creating the workflow.`;
+  } else {
+    summary = `Validation FAILED with ${errors.length} error(s) and ${warnings.length} warning(s). Fix the errors before creating or updating the workflow.`;
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+    warnings,
+    summary,
+  };
 }
 
 // ============ EXECUTION ANALYSIS HELPERS ============
@@ -438,6 +694,12 @@ CONNECTIONS FORMAT:
 TIP: typeVersion is auto-detected from the built-in node catalog when omitted.
 Use get_node_schema to check correct parameters for each node version.
 
+BEFORE CREATING A WORKFLOW:
+1. Call list_workflow_examples to find a similar pattern to start from
+2. Call get_node_schema for each node type you plan to use
+3. Call list_credentials to verify required credentials exist
+4. Call validate_workflow to check your definition for errors BEFORE creating it
+
 NOTE: The 'active' field is READ-ONLY. Use activate_workflow tool after creation.`,
     {
       name: z.string().describe("Workflow name"),
@@ -794,8 +1056,13 @@ This is the self-healing loop:
 After getting the fix plan, use update_workflow to apply the fixes, then run self_heal_workflow again to verify.
 
 This is the recommended workflow development cycle:
-  create_workflow → self_heal_workflow → update_workflow → self_heal_workflow → ...
-  (repeat until all nodes pass)`,
+  1. list_workflow_examples → find a similar pattern
+  2. validate_workflow → check definition for errors
+  3. create_workflow → deploy the workflow
+  4. self_heal_workflow → test and diagnose
+  5. update_workflow → apply fixes
+  6. self_heal_workflow → verify fixes
+  (repeat steps 5-6 until all nodes pass)`,
     {
       workflowId: z.string().describe("The workflow ID to test and heal"),
       payload: z.record(z.unknown()).optional().describe("Optional test input data"),
@@ -1244,6 +1511,249 @@ n8n uses expressions in the format {{ expression }} to:
           content: [{
             type: "text",
             text: `n8n Expression Reference${topic !== "all" ? ` - ${topic}` : ""}:\n\n${JSON.stringify(output, null, 2)}`,
+          }],
+        };
+      } catch (error) {
+        return {
+          content: [{ type: "text", text: `Error: ${(error as Error).message}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // ============ WORKFLOW VALIDATION TOOL ============
+
+  server.tool(
+    "validate_workflow",
+    `Validate a workflow definition BEFORE creating or updating it. This catches errors that would cause the workflow to fail at runtime.
+
+WHEN TO USE: Always call this before create_workflow or update_workflow to catch mistakes early.
+
+CHECKS PERFORMED:
+- Node types exist in the catalog
+- Required parameters are present for each node
+- Connections reference valid node names (no dangling references)
+- At least one trigger node is present
+- No duplicate node names
+- No orphan nodes (disconnected from the workflow)
+- Credential types match what nodes expect
+- Node positions don't overlap
+- typeVersion matches catalog recommendations
+
+RETURNS: A validation report with errors (must fix) and warnings (should review).
+If valid=true, the workflow is safe to create. If valid=false, fix the listed errors first.
+
+RECOMMENDED WORKFLOW:
+  1. Build your workflow definition
+  2. Call validate_workflow to check it
+  3. Fix any errors reported
+  4. Call create_workflow with the corrected definition
+  5. Use self_heal_workflow to test runtime behavior`,
+    {
+      nodes: z.array(nodeSchema).min(1).describe("Array of node objects to validate"),
+      connections: connectionSchema.describe("Connections between nodes"),
+    },
+    async ({ nodes, connections }) => {
+      try {
+        // Optionally fetch available credentials for deeper validation
+        let credentialTypes: string[] | undefined;
+        try {
+          const creds = await n8nClient.listCredentials();
+          credentialTypes = creds.data.map(c => c.type);
+        } catch {
+          // If we can't fetch credentials, skip that validation
+        }
+
+        const result = validateWorkflowDefinition(nodes, connections, credentialTypes);
+
+        const lines: string[] = [];
+        lines.push(`# Workflow Validation Report`);
+        lines.push("");
+        lines.push(`**Status**: ${result.valid ? "PASSED" : "FAILED"}`);
+        lines.push(`**Nodes**: ${nodes.length}`);
+        lines.push(`**Connection sources**: ${Object.keys(connections).length}`);
+        lines.push("");
+        lines.push(result.summary);
+
+        if (result.errors.length > 0) {
+          lines.push("");
+          lines.push("## Errors (must fix)");
+          for (const err of result.errors) {
+            lines.push("");
+            lines.push(`- **${err.node ? `[${err.node}]` : "[workflow]"}${err.field ? ` ${err.field}` : ""}**: ${err.message}`);
+            if (err.suggestion) {
+              lines.push(`  - Fix: ${err.suggestion}`);
+            }
+          }
+        }
+
+        if (result.warnings.length > 0) {
+          lines.push("");
+          lines.push("## Warnings (should review)");
+          for (const warn of result.warnings) {
+            lines.push("");
+            lines.push(`- **${warn.node ? `[${warn.node}]` : "[workflow]"}${warn.field ? ` ${warn.field}` : ""}**: ${warn.message}`);
+            if (warn.suggestion) {
+              lines.push(`  - Suggestion: ${warn.suggestion}`);
+            }
+          }
+        }
+
+        if (result.valid && result.warnings.length === 0) {
+          lines.push("");
+          lines.push("No issues found. This workflow definition is ready to use with create_workflow.");
+        }
+
+        return {
+          content: [{
+            type: "text",
+            text: lines.join("\n"),
+          }],
+        };
+      } catch (error) {
+        return {
+          content: [{ type: "text", text: `Error: ${(error as Error).message}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // ============ GOLDEN-PATH EXAMPLE TOOLS ============
+
+  server.tool(
+    "list_workflow_examples",
+    `List all available golden-path workflow examples. These are complete, tested workflow patterns that demonstrate best practices.
+
+Unlike templates (which are minimal starters), examples are comprehensive reference implementations showing:
+- Correct node configuration with all required parameters
+- Proper connection patterns including branching and error handling
+- Real-world use cases with detailed comments explaining each node's role
+- Common patterns: webhook→process→respond, schedule→fetch→store, event→branch→multi-action
+
+Use get_workflow_example to retrieve the full example with detailed annotations.`,
+    {},
+    async () => {
+      try {
+        const names = getAllWorkflowExampleNames();
+        const summary = names.map(name => {
+          const example = WORKFLOW_EXAMPLES[name];
+          return {
+            name,
+            displayName: example.name,
+            description: example.description,
+            pattern: example.pattern,
+            nodeCount: example.nodes.length,
+            tags: example.tags,
+          };
+        });
+
+        return {
+          content: [{
+            type: "text",
+            text: `Available workflow examples (${names.length} golden-path patterns):\n\n${JSON.stringify(summary, null, 2)}\n\nUse get_workflow_example with the example name to get the full workflow definition with annotations.`,
+          }],
+        };
+      } catch (error) {
+        return {
+          content: [{ type: "text", text: `Error: ${(error as Error).message}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  server.tool(
+    "get_workflow_example",
+    `Get a complete, annotated golden-path workflow example. These are production-quality reference implementations.
+
+Each example includes:
+- Complete node definitions with all parameters correctly configured
+- Proper connections including multi-output branching
+- Annotations explaining WHY each configuration choice was made
+- A ready-to-use payload for create_workflow
+
+RECOMMENDED USAGE:
+1. Call list_workflow_examples to browse available patterns
+2. Call get_workflow_example for the pattern closest to your use case
+3. Modify the example to fit your specific requirements
+4. Call validate_workflow to verify your modifications
+5. Call create_workflow to deploy it`,
+    {
+      exampleName: z.string().describe("Example name (use list_workflow_examples to see available)"),
+    },
+    async ({ exampleName }) => {
+      try {
+        const example = getWorkflowExample(exampleName);
+
+        if (!example) {
+          const available = getAllWorkflowExampleNames();
+          return {
+            content: [{
+              type: "text",
+              text: `Example '${exampleName}' not found.\n\nAvailable examples:\n${available.map(t => `  - ${t}`).join("\n")}`,
+            }],
+          };
+        }
+
+        // Build annotated output
+        const lines: string[] = [];
+        lines.push(`# Example: ${example.name}`);
+        lines.push("");
+        lines.push(`**Pattern**: ${example.pattern}`);
+        lines.push(`**Description**: ${example.description}`);
+        lines.push(`**Tags**: ${example.tags.join(", ")}`);
+        lines.push("");
+
+        // Node-by-node annotations
+        lines.push("## Node Annotations");
+        for (const node of example.nodes) {
+          lines.push("");
+          lines.push(`### ${node.name} (\`${node.type}\`)`);
+          if (node.annotation) {
+            lines.push(node.annotation);
+          }
+          if (node.parameters && Object.keys(node.parameters).length > 0) {
+            lines.push(`Parameters: ${JSON.stringify(node.parameters, null, 2)}`);
+          }
+        }
+
+        // Connection annotations
+        if (example.connectionAnnotations) {
+          lines.push("");
+          lines.push("## Connection Flow");
+          for (const ann of example.connectionAnnotations) {
+            lines.push(`- ${ann}`);
+          }
+        }
+
+        // Ready-to-use payload
+        const workflowPayload = {
+          name: example.name,
+          nodes: example.nodes.map((n, idx) => ({
+            id: `example-${idx}`,
+            name: n.name,
+            type: n.type,
+            typeVersion: resolveTypeVersion(n.type),
+            position: n.position,
+            parameters: n.parameters || {},
+            ...(n.credentials && { credentials: n.credentials }),
+          })),
+          connections: example.connections,
+          settings: { executionOrder: "v1" as const },
+        };
+
+        lines.push("");
+        lines.push("## Ready-to-use payload for create_workflow");
+        lines.push("```json");
+        lines.push(JSON.stringify(workflowPayload, null, 2));
+        lines.push("```");
+
+        return {
+          content: [{
+            type: "text",
+            text: lines.join("\n"),
           }],
         };
       } catch (error) {
