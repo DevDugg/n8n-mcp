@@ -62,6 +62,149 @@ const n8nClient = new N8nClient(config.n8nApiUrl, config.n8nApiKey, {
   maxRetries: config.maxRetries,
 });
 
+// ============ CLAUDE DOCS ============
+
+const CLAUDE_DOCS = `# n8n-MCP — AI Tool Reference
+
+You have access to an n8n workflow automation server through MCP (Model Context Protocol).
+Use the curl patterns below to list, create, execute, and manage n8n workflows.
+
+## Base URL
+
+\`\`\`
+POST https://mcp.kratoslabs.agency/mcp
+Content-Type: application/json
+Accept: application/json, text/event-stream
+\`\`\`
+
+## How to call a tool
+
+Send a JSON-RPC request to the MCP endpoint. The response is in SSE format — parse the \`data:\` line.
+
+\`\`\`bash
+curl -s -X POST "https://mcp.kratoslabs.agency/mcp" \\
+  -H "Content-Type: application/json" \\
+  -H "Accept: application/json, text/event-stream" \\
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"TOOL_NAME","arguments":{ARGS}}}'
+\`\`\`
+
+### Example: List all workflows
+
+\`\`\`bash
+curl -s -X POST "https://mcp.kratoslabs.agency/mcp" \\
+  -H "Content-Type: application/json" \\
+  -H "Accept: application/json, text/event-stream" \\
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_workflows","arguments":{}}}'
+\`\`\`
+
+### Example: Get a specific workflow
+
+\`\`\`bash
+curl -s -X POST "https://mcp.kratoslabs.agency/mcp" \\
+  -H "Content-Type: application/json" \\
+  -H "Accept: application/json, text/event-stream" \\
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_workflow","arguments":{"workflowId":"YOUR_ID"}}}'
+\`\`\`
+
+### Example: Execute a workflow
+
+\`\`\`bash
+curl -s -X POST "https://mcp.kratoslabs.agency/mcp" \\
+  -H "Content-Type: application/json" \\
+  -H "Accept: application/json, text/event-stream" \\
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"execute_workflow","arguments":{"workflowId":"YOUR_ID"}}}'
+\`\`\`
+
+### Example: List available tools
+
+\`\`\`bash
+curl -s -X POST "https://mcp.kratoslabs.agency/mcp" \\
+  -H "Content-Type: application/json" \\
+  -H "Accept: application/json, text/event-stream" \\
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
+\`\`\`
+
+## Parsing responses
+
+Responses use SSE format. The JSON result is on the \`data:\` line:
+
+\`\`\`
+event: message
+data: {"result":{...},"jsonrpc":"2.0","id":1}
+\`\`\`
+
+The tool result is in \`result.content[0].text\` (usually a JSON string).
+
+## Available tools (29)
+
+### Workflow Management
+| Tool | Arguments | Description |
+|------|-----------|-------------|
+| \`list_workflows\` | \`{active?, tags?, name?, limit?}\` | List all workflows |
+| \`get_workflow\` | \`{workflowId}\` | Get workflow details |
+| \`create_workflow\` | \`{name, nodes, connections, settings}\` | Create a workflow |
+| \`update_workflow\` | \`{workflowId, name?, nodes?, connections?, settings?}\` | Update a workflow |
+| \`delete_workflow\` | \`{workflowId}\` | Delete a workflow |
+| \`activate_workflow\` | \`{workflowId}\` | Activate a workflow |
+| \`deactivate_workflow\` | \`{workflowId}\` | Deactivate a workflow |
+
+### Execution
+| Tool | Arguments | Description |
+|------|-----------|-------------|
+| \`list_executions\` | \`{workflowId?, status?, limit?}\` | List executions |
+| \`get_execution\` | \`{executionId}\` | Get execution details |
+| \`delete_execution\` | \`{executionId}\` | Delete an execution |
+| \`execute_webhook\` | \`{webhookPath, data?, username?, password?}\` | Trigger via webhook |
+| \`execute_workflow\` | \`{workflowId, payload?, timeoutMs?}\` | Execute and wait for results |
+
+### Diagnostics & Self-Healing
+| Tool | Arguments | Description |
+|------|-----------|-------------|
+| \`diagnose_execution\` | \`{executionId}\` | Analyze execution errors |
+| \`self_heal_workflow\` | \`{workflowId, payload?, timeoutMs?}\` | Execute, diagnose, and suggest fixes |
+
+### Node Intelligence
+| Tool | Arguments | Description |
+|------|-----------|-------------|
+| \`get_node_types\` | \`{category?}\` | List node types by category |
+| \`get_node_schema\` | \`{nodeType}\` | Get node parameter schema |
+| \`search_nodes\` | \`{query}\` | Search nodes by keyword |
+| \`get_expression_help\` | \`{topic?}\` | n8n expression reference |
+
+### Templates & Examples
+| Tool | Arguments | Description |
+|------|-----------|-------------|
+| \`get_workflow_templates\` | \`{}\` | List workflow templates |
+| \`get_workflow_template\` | \`{templateName}\` | Get a template |
+| \`list_workflow_examples\` | \`{}\` | List golden-path examples |
+| \`get_workflow_example\` | \`{exampleName}\` | Get annotated example |
+
+### Validation
+| Tool | Arguments | Description |
+|------|-----------|-------------|
+| \`validate_workflow\` | \`{nodes, connections}\` | Validate before creating |
+
+### Metadata
+| Tool | Arguments | Description |
+|------|-----------|-------------|
+| \`list_tags\` | \`{}\` | List workflow tags |
+| \`create_tag\` | \`{name}\` | Create a tag |
+| \`list_credentials\` | \`{}\` | List credentials |
+| \`get_credential_schema\` | \`{credentialType}\` | Get credential schema |
+| \`list_variables\` | \`{}\` | List environment variables |
+| \`run_audit\` | \`{categories?}\` | Run security audit |
+
+## Recommended workflow development cycle
+
+1. \`list_workflow_examples\` — find a similar pattern
+2. \`get_node_schema\` — check parameters for each node
+3. \`validate_workflow\` — verify definition before creating
+4. \`create_workflow\` — deploy it
+5. \`self_heal_workflow\` — test and get fix suggestions
+6. \`update_workflow\` — apply fixes
+7. Repeat 5-6 until all nodes pass
+`;
+
 // ============ SERVER FACTORY ============
 
 function createServer(): McpServer {
@@ -209,6 +352,12 @@ function setupRoutes(app: Express): void {
       version: "1.0.0",
       uptime: process.uptime(),
     });
+  });
+
+  // Claude instructions endpoint — serves markdown that teaches Claude how to call MCP tools
+  app.get("/docs", (req: Request, res: Response) => {
+    res.setHeader("Content-Type", "text/markdown; charset=utf-8");
+    res.send(CLAUDE_DOCS);
   });
 
   // 404 handler
