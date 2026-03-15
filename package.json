@@ -15,7 +15,8 @@
     "test": "bun test",
     "test:coverage": "bun test --coverage",
     "inspector": "npx @modelcontextprotocol/inspector",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "cloud": "node dist/cloud-client.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.25.0",
