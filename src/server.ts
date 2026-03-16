@@ -194,6 +194,61 @@ The tool result is in \`result.content[0].text\` (usually a JSON string).
 | \`list_variables\` | \`{}\` | List environment variables |
 | \`run_audit\` | \`{categories?}\` | Run security audit |
 
+## Condition Operator Reference (If, Switch, Filter nodes)
+
+All condition-based nodes (If, Switch, Filter) use the same operator format:
+
+\`\`\`json
+{
+  "leftValue": "={{ $json.fieldName }}",
+  "rightValue": "comparison_value",
+  "operator": { "type": "string", "operation": "equals" }
+}
+\`\`\`
+
+Multiple conditions use \`combinator\`: \`"and"\` (all must match) or \`"or"\` (any must match).
+
+### Available operators by data type
+
+| Type | Operations |
+|------|-----------|
+| **string** | \`equals\`, \`notEquals\`, \`contains\`, \`notContains\`, \`startsWith\`, \`endsWith\`, \`regex\`, \`notRegex\`, \`isEmpty\`, \`isNotEmpty\`, \`exists\`, \`notExists\` |
+| **number** | \`equals\`, \`notEquals\`, \`gt\`, \`lt\`, \`gte\`, \`lte\`, \`isEmpty\`, \`isNotEmpty\`, \`exists\`, \`notExists\` |
+| **dateTime** | \`equals\`, \`notEquals\`, \`after\`, \`before\`, \`afterOrEquals\`, \`beforeOrEquals\`, \`isEmpty\`, \`isNotEmpty\`, \`exists\`, \`notExists\` |
+| **boolean** | \`true\`, \`false\`, \`equals\`, \`notEquals\`, \`isEmpty\`, \`isNotEmpty\`, \`exists\`, \`notExists\` |
+| **array** | \`contains\`, \`notContains\`, \`lengthEquals\`, \`lengthNotEquals\`, \`lengthGt\`, \`lengthLt\`, \`lengthGte\`, \`lengthLte\`, \`isEmpty\`, \`isNotEmpty\`, \`exists\`, \`notExists\` |
+| **object** | \`isEmpty\`, \`isNotEmpty\`, \`exists\`, \`notExists\` |
+
+### Switch node v3.2 — correct format
+
+**IMPORTANT:** Always use the v3 condition builder format. Do NOT use the old v1 format (\`dataType\`/\`value1\`/\`value2\`).
+
+\`\`\`json
+{
+  "mode": "rules",
+  "rules": {
+    "rules": [
+      {
+        "output": 0,
+        "conditions": {
+          "conditions": [
+            { "leftValue": "={{ $json.status }}", "rightValue": "active", "operator": { "type": "string", "operation": "equals" } }
+          ],
+          "combinator": "and"
+        }
+      }
+    ]
+  },
+  "fallbackOutput": "extra"
+}
+\`\`\`
+
+### Options
+
+- \`ignoreCase\` — ignore letter case in string comparisons
+- \`looseTypeValidation\` — attempt to convert value types
+- \`allMatchingOutputs\` (Switch only) — send data to ALL matching outputs
+
 ## Recommended workflow development cycle
 
 1. \`list_workflow_examples\` — find a similar pattern

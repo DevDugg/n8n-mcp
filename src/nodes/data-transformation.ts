@@ -103,7 +103,15 @@ export const DATA_NODES: Record<string, NodeSchema> = {
   "n8n-nodes-base.filter": {
     type: "n8n-nodes-base.filter",
     displayName: "Filter",
-    description: "Filter items based on conditions",
+    description:
+      "Filter items based on conditions. Uses the same condition builder as If and Switch nodes. " +
+      "Available operators — " +
+      "String: equals, notEquals, contains, notContains, startsWith, endsWith, regex, notRegex, isEmpty, isNotEmpty, exists, notExists. " +
+      "Number: equals, notEquals, gt, lt, gte, lte, isEmpty, isNotEmpty, exists, notExists. " +
+      "DateTime: equals, notEquals, after, before, afterOrEquals, beforeOrEquals, isEmpty, isNotEmpty, exists, notExists. " +
+      "Boolean: true, false, equals, notEquals, isEmpty, isNotEmpty, exists, notExists. " +
+      "Array: contains, notContains, lengthEquals, lengthNotEquals, lengthGt, lengthLt, lengthGte, lengthLte, isEmpty, isNotEmpty, exists, notExists. " +
+      "Object: isEmpty, isNotEmpty, exists, notExists.",
     category: "data",
     typeVersion: 2.2,
     inputs: ["main"],
@@ -113,7 +121,9 @@ export const DATA_NODES: Record<string, NodeSchema> = {
         name: "conditions",
         type: "fixedCollection",
         required: true,
-        description: "Filter conditions",
+        description:
+          "Filter conditions. Each condition has: leftValue, rightValue, and operator ({type, operation}). " +
+          "Use combinator ('and' | 'or') to combine multiple conditions.",
       },
       {
         name: "combineOperation",
@@ -122,14 +132,23 @@ export const DATA_NODES: Record<string, NodeSchema> = {
         default: "all",
         description: "How to combine conditions",
         options: [
-          { name: "All", value: "all", description: "All conditions must match" },
-          { name: "Any", value: "any", description: "Any condition must match" },
+          { name: "All", value: "all", description: "All conditions must match (AND)" },
+          { name: "Any", value: "any", description: "Any condition must match (OR)" },
         ],
+      },
+      {
+        name: "options",
+        type: "collection",
+        required: false,
+        description:
+          "Additional options: " +
+          "ignoreCase (boolean) — ignore letter case in string comparisons; " +
+          "looseTypeValidation (boolean) — attempt to convert value types based on operator.",
       },
     ],
     examples: [
       {
-        name: "Filter by Status",
+        name: "Filter by Status (string equals)",
         description: "Keep only active items",
         parameters: {
           conditions: {
@@ -144,7 +163,7 @@ export const DATA_NODES: Record<string, NodeSchema> = {
         },
       },
       {
-        name: "Filter by Value",
+        name: "Filter by Value (number gt)",
         description: "Keep items with amount > 100",
         parameters: {
           conditions: {
@@ -159,8 +178,53 @@ export const DATA_NODES: Record<string, NodeSchema> = {
         },
       },
       {
-        name: "Multiple Conditions",
-        description: "Filter with multiple criteria",
+        name: "Filter by string contains",
+        description: "Keep items where name contains 'premium'",
+        parameters: {
+          conditions: {
+            conditions: [
+              {
+                leftValue: "={{ $json.name }}",
+                rightValue: "premium",
+                operator: { type: "string", operation: "contains" },
+              },
+            ],
+          },
+        },
+      },
+      {
+        name: "Filter by non-empty array",
+        description: "Keep items that have tags",
+        parameters: {
+          conditions: {
+            conditions: [
+              {
+                leftValue: "={{ $json.tags }}",
+                rightValue: "",
+                operator: { type: "array", operation: "isNotEmpty" },
+              },
+            ],
+          },
+        },
+      },
+      {
+        name: "Filter by date (after)",
+        description: "Keep items created after a specific date",
+        parameters: {
+          conditions: {
+            conditions: [
+              {
+                leftValue: "={{ $json.createdAt }}",
+                rightValue: "2024-01-01T00:00:00.000Z",
+                operator: { type: "dateTime", operation: "after" },
+              },
+            ],
+          },
+        },
+      },
+      {
+        name: "Multiple conditions (AND)",
+        description: "Filter active items with positive amount",
         parameters: {
           conditions: {
             conditions: [
@@ -168,6 +232,19 @@ export const DATA_NODES: Record<string, NodeSchema> = {
               { leftValue: "={{ $json.amount }}", rightValue: 0, operator: { type: "number", operation: "gt" } },
             ],
             combinator: "and",
+          },
+        },
+      },
+      {
+        name: "Multiple conditions (OR)",
+        description: "Keep items that are active OR premium",
+        parameters: {
+          conditions: {
+            conditions: [
+              { leftValue: "={{ $json.status }}", rightValue: "active", operator: { type: "string", operation: "equals" } },
+              { leftValue: "={{ $json.tier }}", rightValue: "premium", operator: { type: "string", operation: "equals" } },
+            ],
+            combinator: "or",
           },
         },
       },

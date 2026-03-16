@@ -795,21 +795,45 @@ export const WORKFLOW_EXAMPLES: Record<string, WorkflowExample> = {
         type: "n8n-nodes-base.switch",
         position: [450, 300],
         parameters: {
-          dataType: "string",
-          value1: "={{ $json.eventType }}",
+          mode: "rules",
           rules: {
             rules: [
-              { value2: "user.created", output: 0 },
-              { value2: "order.completed", output: 1 },
-              { value2: "payment.failed", output: 2 },
+              {
+                output: 0,
+                conditions: {
+                  conditions: [
+                    { leftValue: "={{ $json.eventType }}", rightValue: "user.created", operator: { type: "string", operation: "equals" } },
+                  ],
+                  combinator: "and",
+                },
+              },
+              {
+                output: 1,
+                conditions: {
+                  conditions: [
+                    { leftValue: "={{ $json.eventType }}", rightValue: "order.completed", operator: { type: "string", operation: "equals" } },
+                  ],
+                  combinator: "and",
+                },
+              },
+              {
+                output: 2,
+                conditions: {
+                  conditions: [
+                    { leftValue: "={{ $json.eventType }}", rightValue: "payment.failed", operator: { type: "string", operation: "equals" } },
+                  ],
+                  combinator: "and",
+                },
+              },
             ],
           },
-          fallbackOutput: 3,
+          fallbackOutput: "extra",
         },
         annotation:
-          "Switch node with 4 outputs: 3 named rules + 1 fallback. Each rule matches " +
-          "the eventType field against a specific value and routes to the corresponding output index. " +
-          "Unmatched events go to fallbackOutput (index 3).",
+          "Switch node v3.2 with 4 outputs: 3 rules + 1 fallback (extra output). " +
+          "Each rule uses the condition builder with operator {type: 'string', operation: 'equals'}. " +
+          "IMPORTANT: Do NOT use the old v1 format (dataType/value1/value2) — always use conditions with operator objects. " +
+          "Unmatched events go to the extra fallback output.",
       },
       {
         name: "Handle New User",

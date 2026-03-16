@@ -8,7 +8,17 @@ export const FLOW_NODES: Record<string, NodeSchema> = {
   "n8n-nodes-base.if": {
     type: "n8n-nodes-base.if",
     displayName: "If",
-    description: "Route items to different branches based on conditions (true/false)",
+    description:
+      "Route items to different branches based on conditions (true/false). " +
+      "Uses the same condition builder as Switch and Filter nodes. " +
+      "Supports string, number, dateTime, boolean, array, and object comparisons. " +
+      "Available operators — " +
+      "String: equals, notEquals, contains, notContains, startsWith, endsWith, regex, notRegex, isEmpty, isNotEmpty, exists, notExists. " +
+      "Number: equals, notEquals, gt, lt, gte, lte, isEmpty, isNotEmpty, exists, notExists. " +
+      "DateTime: equals, notEquals, after, before, afterOrEquals, beforeOrEquals, isEmpty, isNotEmpty, exists, notExists. " +
+      "Boolean: true, false, equals, notEquals, isEmpty, isNotEmpty, exists, notExists. " +
+      "Array: contains, notContains, lengthEquals, lengthNotEquals, lengthGt, lengthLt, lengthGte, lengthLte, isEmpty, isNotEmpty, exists, notExists. " +
+      "Object: isEmpty, isNotEmpty, exists, notExists.",
     category: "flow",
     typeVersion: 2.2,
     inputs: ["main"],
@@ -18,7 +28,9 @@ export const FLOW_NODES: Record<string, NodeSchema> = {
         name: "conditions",
         type: "fixedCollection",
         required: true,
-        description: "Conditions to evaluate. Items go to 'true' branch if conditions match, 'false' branch otherwise.",
+        description:
+          "Conditions to evaluate. Items go to 'true' branch (output 0) if conditions match, " +
+          "'false' branch (output 1) otherwise. Each condition has: leftValue, rightValue, and operator ({type, operation}).",
       },
       {
         name: "combineOperation",
@@ -27,15 +39,24 @@ export const FLOW_NODES: Record<string, NodeSchema> = {
         default: "all",
         description: "How to combine multiple conditions",
         options: [
-          { name: "All", value: "all", description: "All conditions must be true" },
-          { name: "Any", value: "any", description: "Any condition must be true" },
+          { name: "All", value: "all", description: "All conditions must be true (AND)" },
+          { name: "Any", value: "any", description: "Any condition must be true (OR)" },
         ],
+      },
+      {
+        name: "options",
+        type: "collection",
+        required: false,
+        description:
+          "Additional options: " +
+          "ignoreCase (boolean) — ignore letter case in string comparisons; " +
+          "looseTypeValidation (boolean) — attempt to convert value types based on operator.",
       },
     ],
     examples: [
       {
-        name: "Check Status",
-        description: "Route based on status field",
+        name: "String equals",
+        description: "Route based on exact string match",
         parameters: {
           conditions: {
             conditions: [
@@ -49,7 +70,37 @@ export const FLOW_NODES: Record<string, NodeSchema> = {
         },
       },
       {
-        name: "Check Number",
+        name: "String contains",
+        description: "Route based on substring match",
+        parameters: {
+          conditions: {
+            conditions: [
+              {
+                leftValue: "={{ $json.email }}",
+                rightValue: "@company.com",
+                operator: { type: "string", operation: "contains" },
+              },
+            ],
+          },
+        },
+      },
+      {
+        name: "String regex",
+        description: "Route based on regex pattern",
+        parameters: {
+          conditions: {
+            conditions: [
+              {
+                leftValue: "={{ $json.phone }}",
+                rightValue: "^\\+1\\d{10}$",
+                operator: { type: "string", operation: "regex" },
+              },
+            ],
+          },
+        },
+      },
+      {
+        name: "Number comparison",
         description: "Route based on numeric comparison",
         parameters: {
           conditions: {
@@ -64,8 +115,53 @@ export const FLOW_NODES: Record<string, NodeSchema> = {
         },
       },
       {
-        name: "Multiple Conditions",
-        description: "Check multiple conditions",
+        name: "Boolean check",
+        description: "Route based on boolean value",
+        parameters: {
+          conditions: {
+            conditions: [
+              {
+                leftValue: "={{ $json.isActive }}",
+                rightValue: "",
+                operator: { type: "boolean", operation: "true" },
+              },
+            ],
+          },
+        },
+      },
+      {
+        name: "Check field exists",
+        description: "Route based on whether a field exists",
+        parameters: {
+          conditions: {
+            conditions: [
+              {
+                leftValue: "={{ $json.optionalField }}",
+                rightValue: "",
+                operator: { type: "string", operation: "exists" },
+              },
+            ],
+          },
+        },
+      },
+      {
+        name: "Array not empty",
+        description: "Route based on array having items",
+        parameters: {
+          conditions: {
+            conditions: [
+              {
+                leftValue: "={{ $json.items }}",
+                rightValue: "",
+                operator: { type: "array", operation: "isNotEmpty" },
+              },
+            ],
+          },
+        },
+      },
+      {
+        name: "Multiple conditions (AND)",
+        description: "All conditions must be true",
         parameters: {
           conditions: {
             conditions: [
@@ -76,11 +172,32 @@ export const FLOW_NODES: Record<string, NodeSchema> = {
               },
               {
                 leftValue: "={{ $json.verified }}",
-                rightValue: true,
-                operator: { type: "boolean", operation: "equals" },
+                rightValue: "",
+                operator: { type: "boolean", operation: "true" },
               },
             ],
             combinator: "and",
+          },
+        },
+      },
+      {
+        name: "Multiple conditions (OR)",
+        description: "Any condition can be true",
+        parameters: {
+          conditions: {
+            conditions: [
+              {
+                leftValue: "={{ $json.role }}",
+                rightValue: "admin",
+                operator: { type: "string", operation: "equals" },
+              },
+              {
+                leftValue: "={{ $json.role }}",
+                rightValue: "superadmin",
+                operator: { type: "string", operation: "equals" },
+              },
+            ],
+            combinator: "or",
           },
         },
       },
@@ -91,7 +208,17 @@ export const FLOW_NODES: Record<string, NodeSchema> = {
   "n8n-nodes-base.switch": {
     type: "n8n-nodes-base.switch",
     displayName: "Switch",
-    description: "Route items to multiple outputs based on value matching",
+    description:
+      "Route items to multiple outputs based on conditions. Each rule defines a condition that, " +
+      "when matched, sends the item to the corresponding output. " +
+      "Supports string, number, dateTime, boolean, array, and object comparisons. " +
+      "Available operators — " +
+      "String: equals, notEquals, contains, notContains, startsWith, endsWith, regex, notRegex, isEmpty, isNotEmpty, exists, notExists. " +
+      "Number: equals, notEquals, gt, lt, gte, lte, isEmpty, isNotEmpty, exists, notExists. " +
+      "DateTime: equals, notEquals, after, before, afterOrEquals, beforeOrEquals, isEmpty, isNotEmpty, exists, notExists. " +
+      "Boolean: true, false, equals, notEquals, isEmpty, isNotEmpty, exists, notExists. " +
+      "Array: contains, notContains, lengthEquals, lengthNotEquals, lengthGt, lengthLt, lengthGte, lengthLte, isEmpty, isNotEmpty, exists, notExists. " +
+      "Object: isEmpty, isNotEmpty, exists, notExists.",
     category: "flow",
     typeVersion: 3.2,
     inputs: ["main"],
@@ -104,15 +231,28 @@ export const FLOW_NODES: Record<string, NodeSchema> = {
         default: "rules",
         description: "Mode of operation",
         options: [
-          { name: "Rules", value: "rules", description: "Define rules for each output" },
-          { name: "Expression", value: "expression", description: "Use expression to determine output" },
+          { name: "Rules", value: "rules", description: "Define rules for each output using the condition builder" },
+          { name: "Expression", value: "expression", description: "Use an expression that returns the output index (number)" },
         ],
       },
       {
         name: "rules",
         type: "fixedCollection",
         required: false,
-        description: "Rules to evaluate for routing",
+        description:
+          "Rules to evaluate for routing. Each rule has an output index and a conditions block. " +
+          "The conditions block contains: conditions (array of {leftValue, rightValue, operator}), " +
+          "combinator ('and' | 'or'), and options ({caseSensitive, typeValidation}).",
+      },
+      {
+        name: "options",
+        type: "collection",
+        required: false,
+        description:
+          "Additional options: " +
+          "ignoreCase (boolean) — ignore letter case in string comparisons; " +
+          "looseTypeValidation (boolean) — attempt to convert value types based on operator; " +
+          "allMatchingOutputs (boolean) — send data to ALL matching outputs instead of only the first match.",
       },
       {
         name: "fallbackOutput",
@@ -121,15 +261,15 @@ export const FLOW_NODES: Record<string, NodeSchema> = {
         default: "none",
         description: "Where to send items that don't match any rule",
         options: [
-          { name: "None", value: "none" },
-          { name: "Extra Output", value: "extra" },
+          { name: "None", value: "none", description: "Ignore unmatched items (default)" },
+          { name: "Extra Output", value: "extra", description: "Send to an additional output at the end" },
         ],
       },
     ],
     examples: [
       {
-        name: "Route by Status",
-        description: "Route to different outputs based on status",
+        name: "Route by Status (string equals)",
+        description: "Route to different outputs based on exact status match",
         parameters: {
           mode: "rules",
           rules: {
@@ -140,6 +280,7 @@ export const FLOW_NODES: Record<string, NodeSchema> = {
                   conditions: [
                     { leftValue: "={{ $json.status }}", rightValue: "pending", operator: { type: "string", operation: "equals" } },
                   ],
+                  combinator: "and",
                 },
               },
               {
@@ -148,6 +289,7 @@ export const FLOW_NODES: Record<string, NodeSchema> = {
                   conditions: [
                     { leftValue: "={{ $json.status }}", rightValue: "approved", operator: { type: "string", operation: "equals" } },
                   ],
+                  combinator: "and",
                 },
               },
               {
@@ -156,11 +298,120 @@ export const FLOW_NODES: Record<string, NodeSchema> = {
                   conditions: [
                     { leftValue: "={{ $json.status }}", rightValue: "rejected", operator: { type: "string", operation: "equals" } },
                   ],
+                  combinator: "and",
                 },
               },
             ],
           },
           fallbackOutput: "extra",
+        },
+      },
+      {
+        name: "Route by Amount (number comparison)",
+        description: "Route orders to different tiers based on amount",
+        parameters: {
+          mode: "rules",
+          rules: {
+            rules: [
+              {
+                output: 0,
+                conditions: {
+                  conditions: [
+                    { leftValue: "={{ $json.amount }}", rightValue: 1000, operator: { type: "number", operation: "gte" } },
+                  ],
+                  combinator: "and",
+                },
+              },
+              {
+                output: 1,
+                conditions: {
+                  conditions: [
+                    { leftValue: "={{ $json.amount }}", rightValue: 100, operator: { type: "number", operation: "gte" } },
+                  ],
+                  combinator: "and",
+                },
+              },
+              {
+                output: 2,
+                conditions: {
+                  conditions: [
+                    { leftValue: "={{ $json.amount }}", rightValue: 100, operator: { type: "number", operation: "lt" } },
+                  ],
+                  combinator: "and",
+                },
+              },
+            ],
+          },
+          fallbackOutput: "extra",
+        },
+      },
+      {
+        name: "Route with string contains",
+        description: "Route by checking if a field contains a substring",
+        parameters: {
+          mode: "rules",
+          rules: {
+            rules: [
+              {
+                output: 0,
+                conditions: {
+                  conditions: [
+                    { leftValue: "={{ $json.email }}", rightValue: "@company.com", operator: { type: "string", operation: "endsWith" } },
+                  ],
+                  combinator: "and",
+                },
+              },
+              {
+                output: 1,
+                conditions: {
+                  conditions: [
+                    { leftValue: "={{ $json.email }}", rightValue: "admin", operator: { type: "string", operation: "contains" } },
+                  ],
+                  combinator: "and",
+                },
+              },
+            ],
+          },
+          fallbackOutput: "extra",
+        },
+      },
+      {
+        name: "Route with multiple conditions per rule (AND/OR)",
+        description: "Use combinator to require multiple conditions per output",
+        parameters: {
+          mode: "rules",
+          rules: {
+            rules: [
+              {
+                output: 0,
+                conditions: {
+                  conditions: [
+                    { leftValue: "={{ $json.type }}", rightValue: "order", operator: { type: "string", operation: "equals" } },
+                    { leftValue: "={{ $json.total }}", rightValue: 500, operator: { type: "number", operation: "gte" } },
+                  ],
+                  combinator: "and",
+                },
+              },
+              {
+                output: 1,
+                conditions: {
+                  conditions: [
+                    { leftValue: "={{ $json.type }}", rightValue: "refund", operator: { type: "string", operation: "equals" } },
+                  ],
+                  combinator: "and",
+                },
+              },
+            ],
+          },
+          fallbackOutput: "extra",
+        },
+      },
+      {
+        name: "Route by Expression (output index)",
+        description: "Use expression mode to dynamically choose the output index",
+        parameters: {
+          mode: "expression",
+          output: "={{ { 'low': 0, 'medium': 1, 'high': 2 }[$json.priority] ?? 3 }}",
         },
       },
     ],
