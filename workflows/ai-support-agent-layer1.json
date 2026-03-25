@@ -1,0 +1,299 @@
+{
+  "name": "AI Support Agent",
+  "nodes": [
+    {
+      "id": "trigger-webhook",
+      "name": "Support Intake Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 300],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "support-intake",
+        "responseMode": "lastNode",
+        "responseData": "firstEntryJson"
+      }
+    },
+    {
+      "id": "normalize-message",
+      "name": "Normalize Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [300, 300],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const item = $input.first().json;\n\n// Determine source — for now, always webhook. Email/Slack triggers added later.\nconst source = item.source || 'webhook';\nconst customer_id = item.email || item.customer_id || item.user_id || 'unknown';\nconst customer_name = item.name || item.customer_name || customer_id;\nconst message = item.message || item.text || item.body || '';\nconst subject = item.subject || '';\nconst timestamp = new Date().toISOString();\nconst thread_id = item.thread_id || item.threadId || '';\nconst is_reply = !!(item.is_reply || item.in_reply_to || thread_id);\n\nreturn [{\n  json: {\n    source,\n    customer_id,\n    customer_name,\n    message,\n    subject,\n    timestamp,\n    thread_id,\n    is_reply\n  }\n}];"
+      }
+    },
+    {
+      "id": "read-kb",
+      "name": "Read Knowledge Base",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [600, 300],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": "PLACEHOLDER_SPREADSHEET_ID",
+        "sheetName": "Knowledge Base"
+      }
+    },
+    {
+      "id": "read-config",
+      "name": "Read Agent Config",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [900, 300],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": "PLACEHOLDER_SPREADSHEET_ID",
+        "sheetName": "Agent Config"
+      }
+    },
+    {
+      "id": "format-context",
+      "name": "Format Context for Claude",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1200, 300],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Pull data from previous nodes by name\nconst message = $('Normalize Message').first().json;\nconst kbEntries = $('Read Knowledge Base').all().map(i => i.json);\nconst configEntries = $('Read Agent Config').all().map(i => i.json);\n\n// Build config lookup\nconst config = {};\nfor (const entry of configEntries) {\n  config[entry.Setting] = entry.Value;\n}\n\n// Format KB entries for the prompt\nconst kbFormatted = kbEntries.map((entry, i) => {\n  const id = entry.ID || (i + 1);\n  return `[KB #${id}] Category: ${entry.Category}\\nQuestion Patterns: ${entry['Question Pattern']}\\nApproved Answer: ${entry['Approved Answer']}\\nConfidence Override: ${entry['Confidence Threshold Override'] || 'default'}`;\n}).join('\\n\\n');\n\nconst threshold = parseInt(config.confidence_threshold || '80');\n\nconst systemPrompt = `You are a customer support AI agent for ${config.business_name || '[Your Business Name]'}.\n\nYour task: analyze the incoming customer message and determine the best response.\n\nBUSINESS VOICE: ${config.business_voice || 'Professional but friendly. Use first names. Keep responses under 150 words.'}\n\nKNOWLEDGE BASE:\n${kbFormatted || '(No entries yet — all messages should go to human review)'}\n\nESCALATION KEYWORDS: ${config.escalation_keywords || 'urgent, refund, cancel, legal, lawyer, angry, furious, complaint, escalate'}\n\nCONFIDENCE THRESHOLD: ${threshold} (auto-respond only when confidence >= this value)\n\nINSTRUCTIONS:\n1. First, check if the message contains any ESCALATION KEYWORDS. If yes, set action to \"escalate\" regardless of confidence.\n2. Search the knowledge base for the best matching entry. Consider semantic meaning, not just keyword matching. \"Where's my bill\" matches \"Invoice\" entries. \"Can't log in\" matches \"Password\" entries.\n3. Rate your confidence from 0-100:\n   - 90-100: The knowledge base has an almost exact answer\n   - 70-89: The knowledge base has a relevant answer but needs adaptation\n   - 50-69: Partially related\n   - 0-49: No match\n4. Determine action:\n   - If confidence >= ${threshold} and no escalation keywords: \"auto_respond\"\n   - If confidence < ${threshold}: \"needs_approval\"\n   - If escalation keywords found: \"escalate\"\n5. Generate a response:\n   - For auto_respond: Natural, personalized response based on the matched KB entry. Use the customer's name. Don't copy-paste — make it sound human.\n   - For needs_approval: Your best attempt at a helpful response (will be reviewed by a human).\n   - For escalate: Brief acknowledgment that the message has been flagged for the team.\n6. Return ONLY valid JSON in this exact format:\n{\n  \"classification\": \"[matched category from KB, or 'Unknown']\",\n  \"confidence\": [0-100],\n  \"action\": \"auto_respond\" | \"needs_approval\" | \"escalate\",\n  \"matched_kb_id\": [KB row ID or null],\n  \"response\": \"[the generated response text]\",\n  \"reasoning\": \"[one sentence explaining why]\",\n  \"detected_intent\": \"[what the customer actually wants]\",\n  \"sentiment\": \"positive\" | \"neutral\" | \"frustrated\" | \"angry\"\n}`;\n\nconst userMessage = `From: ${message.customer_name} (${message.customer_id})\\nSubject: ${message.subject || '(none)'}\\nMessage: ${message.message}`;\n\nreturn [{\n  json: {\n    systemPrompt,\n    userMessage,\n    confidence_threshold: threshold,\n    config,\n    original_message: message\n  }\n}];"
+      }
+    },
+    {
+      "id": "claude-classify",
+      "name": "Claude Classification",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1500, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "x-api-key", "value": "PLACEHOLDER_ANTHROPIC_API_KEY" },
+            { "name": "anthropic-version", "value": "2023-06-01" },
+            { "name": "content-type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 1024, system: $json.systemPrompt, messages: [{ role: 'user', content: $json.userMessage }] }) }}"
+      }
+    },
+    {
+      "id": "parse-response",
+      "name": "Parse Claude Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1800, 300],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const response = $input.first().json;\nconst context = $('Format Context for Claude').first().json;\nconst originalMessage = context.original_message;\nconst threshold = context.confidence_threshold || 80;\n\nlet parsed;\ntry {\n  const text = response.content[0].text;\n  const jsonMatch = text.match(/\\{[\\s\\S]*\\}/);\n  parsed = JSON.parse(jsonMatch ? jsonMatch[0] : text);\n} catch (e) {\n  parsed = {\n    classification: 'Unknown',\n    confidence: 0,\n    action: 'needs_approval',\n    matched_kb_id: null,\n    response: \"I apologize, but I wasn't able to process your request. A team member will assist you shortly.\",\n    reasoning: 'Failed to parse AI response: ' + e.message,\n    detected_intent: 'unknown',\n    sentiment: 'neutral'\n  };\n}\n\n// Safety: override action if confidence below threshold\nif (parsed.action === 'auto_respond' && parsed.confidence < threshold) {\n  parsed.action = 'needs_approval';\n  parsed.reasoning += ' (confidence below threshold, routing to human)';\n}\n\nreturn [{\n  json: {\n    ...parsed,\n    source: originalMessage.source,\n    customer_id: originalMessage.customer_id,\n    customer_name: originalMessage.customer_name,\n    message: originalMessage.message,\n    subject: originalMessage.subject,\n    timestamp: originalMessage.timestamp,\n    thread_id: originalMessage.thread_id,\n    is_reply: originalMessage.is_reply,\n    config: context.config\n  }\n}];"
+      }
+    },
+    {
+      "id": "confidence-router",
+      "name": "Confidence Router",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [2100, 300],
+      "parameters": {
+        "mode": "rules",
+        "dataType": "string",
+        "value1": "={{ $json.action }}",
+        "rules": {
+          "rules": [
+            { "value2": "auto_respond", "output": 0 },
+            { "value2": "needs_approval", "output": 1 },
+            { "value2": "escalate", "output": 2 }
+          ]
+        },
+        "fallbackOutput": 1
+      }
+    },
+    {
+      "id": "format-auto-response",
+      "name": "Format Auto-Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2400, 100],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const data = $input.first().json;\nconst signature = (data.config && data.config.welcome_signature) || 'Best regards, Support Team';\n\nconst formattedResponse = data.response + '\\n\\n' + signature;\n\nreturn [{\n  json: {\n    // Fields matching Conversation Log sheet columns\n    Timestamp: data.timestamp,\n    'Source Channel': data.source,\n    'Customer Identifier': data.customer_id,\n    'Original Message': (data.message || '').substring(0, 500),\n    'AI Classification': data.classification,\n    'Confidence Score': data.confidence,\n    'Action Taken': 'Auto-responded',\n    'Response Sent': formattedResponse,\n    'Response Source': 'Auto (KB #' + (data.matched_kb_id || 'AI') + ')',\n    'Thread ID': data.thread_id || '',\n    'Resolution Status': 'Resolved',\n    'Time to Response': Math.floor((Date.now() - new Date(data.timestamp).getTime()) / 1000),\n    // Keep these for downstream use\n    formatted_response: formattedResponse,\n    matched_kb_id: data.matched_kb_id,\n    customer_name: data.customer_name,\n    source: data.source,\n    sentiment: data.sentiment,\n    detected_intent: data.detected_intent,\n    reasoning: data.reasoning\n  }\n}];"
+      }
+    },
+    {
+      "id": "log-auto-response",
+      "name": "Log to Conversation Log",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [2700, 100],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "append",
+        "documentId": "PLACEHOLDER_SPREADSHEET_ID",
+        "sheetName": "Conversation Log",
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {}
+        }
+      }
+    },
+    {
+      "id": "update-kb-stats",
+      "name": "Update KB Usage Stats",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [3000, 100],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "update",
+        "documentId": "PLACEHOLDER_SPREADSHEET_ID",
+        "sheetName": "Knowledge Base",
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {}
+        }
+      }
+    },
+    {
+      "id": "placeholder-approval",
+      "name": "[Layer 2] Needs Approval",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [2400, 300],
+      "parameters": {
+        "mode": "manual",
+        "fields": {
+          "values": [
+            { "name": "status", "stringValue": "needs_approval" },
+            { "name": "note", "stringValue": "Human-in-the-loop approval flow will be built in Layer 2" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "placeholder-escalate",
+      "name": "[Layer 4] Escalate",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [2400, 500],
+      "parameters": {
+        "mode": "manual",
+        "fields": {
+          "values": [
+            { "name": "status", "stringValue": "escalated" },
+            { "name": "note", "stringValue": "Escalation routing will be built in Layer 4" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "placeholder-approval-end",
+      "name": "[Layer 2] Log Pending",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [2700, 300],
+      "parameters": {
+        "mode": "manual",
+        "fields": {
+          "values": [
+            { "name": "action_taken", "stringValue": "Sent to human for approval" },
+            { "name": "resolution_status", "stringValue": "Open" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "placeholder-escalate-end",
+      "name": "[Layer 4] Log Escalation",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [2700, 500],
+      "parameters": {
+        "mode": "manual",
+        "fields": {
+          "values": [
+            { "name": "action_taken", "stringValue": "Escalated" },
+            { "name": "resolution_status", "stringValue": "Escalated" }
+          ]
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Support Intake Webhook": {
+      "main": [
+        [{ "node": "Normalize Message", "type": "main", "index": 0 }]
+      ]
+    },
+    "Normalize Message": {
+      "main": [
+        [{ "node": "Read Knowledge Base", "type": "main", "index": 0 }]
+      ]
+    },
+    "Read Knowledge Base": {
+      "main": [
+        [{ "node": "Read Agent Config", "type": "main", "index": 0 }]
+      ]
+    },
+    "Read Agent Config": {
+      "main": [
+        [{ "node": "Format Context for Claude", "type": "main", "index": 0 }]
+      ]
+    },
+    "Format Context for Claude": {
+      "main": [
+        [{ "node": "Claude Classification", "type": "main", "index": 0 }]
+      ]
+    },
+    "Claude Classification": {
+      "main": [
+        [{ "node": "Parse Claude Response", "type": "main", "index": 0 }]
+      ]
+    },
+    "Parse Claude Response": {
+      "main": [
+        [{ "node": "Confidence Router", "type": "main", "index": 0 }]
+      ]
+    },
+    "Confidence Router": {
+      "main": [
+        [{ "node": "Format Auto-Response", "type": "main", "index": 0 }],
+        [{ "node": "[Layer 2] Needs Approval", "type": "main", "index": 0 }],
+        [{ "node": "[Layer 4] Escalate", "type": "main", "index": 0 }]
+      ]
+    },
+    "Format Auto-Response": {
+      "main": [
+        [{ "node": "Log to Conversation Log", "type": "main", "index": 0 }]
+      ]
+    },
+    "Log to Conversation Log": {
+      "main": [
+        [{ "node": "Update KB Usage Stats", "type": "main", "index": 0 }]
+      ]
+    },
+    "[Layer 2] Needs Approval": {
+      "main": [
+        [{ "node": "[Layer 2] Log Pending", "type": "main", "index": 0 }]
+      ]
+    },
+    "[Layer 4] Escalate": {
+      "main": [
+        [{ "node": "[Layer 4] Log Escalation", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
