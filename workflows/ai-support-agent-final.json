@@ -2,7 +2,7 @@
   "name": "AI Support Agent",
   "nodes": [
     {
-      "id": "trigger-webhook",
+      "id": "db0b2fb4-5572-415d-9735-951846d7c744",
       "name": "Support Intake Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
@@ -18,7 +18,7 @@
       }
     },
     {
-      "id": "normalize-message",
+      "id": "11fa4b17-5da7-47af-8439-53758d6d53ef",
       "name": "Normalize Message",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -33,7 +33,7 @@
       }
     },
     {
-      "id": "read-kb",
+      "id": "92a9370c-eb29-4beb-afcf-db511c078c92",
       "name": "Read Knowledge Base",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4,
@@ -49,7 +49,7 @@
       }
     },
     {
-      "id": "read-config",
+      "id": "52583955-225f-408d-848d-66927719af84",
       "name": "Read Agent Config",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4,
@@ -65,7 +65,7 @@
       }
     },
     {
-      "id": "format-context",
+      "id": "a3e60bc5-db62-400c-a4e1-a55676ca57e5",
       "name": "Format Context for Claude",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -80,7 +80,7 @@
       }
     },
     {
-      "id": "claude-classify",
+      "id": "d3309459-ddd0-4250-be9c-623af975c456",
       "name": "Claude Classification",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -114,7 +114,7 @@
       }
     },
     {
-      "id": "parse-response",
+      "id": "926d7e8b-150e-49e9-b405-56a82894219c",
       "name": "Parse Claude Response",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -129,7 +129,7 @@
       }
     },
     {
-      "id": "confidence-router",
+      "id": "e842cb1e-b541-4559-a6a8-a9889ae04e08",
       "name": "Confidence Router",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
@@ -161,7 +161,7 @@
       }
     },
     {
-      "id": "format-auto-response",
+      "id": "7919e2ea-f8b0-4081-858e-34bb087e4c2e",
       "name": "Format Auto-Response",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -176,7 +176,7 @@
       }
     },
     {
-      "id": "log-auto-response",
+      "id": "89921012-3703-4e73-b89e-44cc45ce4869",
       "name": "Log to Conversation Log",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4,
@@ -196,7 +196,7 @@
       }
     },
     {
-      "id": "update-kb-stats",
+      "id": "7efd7744-37da-40ec-8b60-b44a478d8016",
       "name": "Update KB Usage Stats",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4,
@@ -216,7 +216,7 @@
       }
     },
     {
-      "id": "prepare-pending",
+      "id": "cfe648bc-4a2a-462e-ab3d-679135ab4eda",
       "name": "Prepare Pending Data",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -231,7 +231,7 @@
       }
     },
     {
-      "id": "write-pending",
+      "id": "7445c740-2945-409f-bd12-19a5f71f47f5",
       "name": "Write Pending Approval",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4,
@@ -251,7 +251,7 @@
       }
     },
     {
-      "id": "read-team-directory",
+      "id": "6af8f17c-fec7-421d-992a-7dfa56003844",
       "name": "Read Team Directory",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4,
@@ -267,7 +267,7 @@
       }
     },
     {
-      "id": "route-to-reviewer",
+      "id": "a4adcf37-1002-4271-8ca7-e94e2533dbb9",
       "name": "Route to Reviewer",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -282,7 +282,7 @@
       }
     },
     {
-      "id": "send-review-notification",
+      "id": "64018a4e-4fd9-4302-a24c-812df36130e4",
       "name": "Send Review Notification",
       "type": "n8n-nodes-base.slack",
       "typeVersion": 2,
@@ -298,7 +298,7 @@
       }
     },
     {
-      "id": "log-pending",
+      "id": "929e22c0-f6cc-485f-8c7e-91a484b70d19",
       "name": "Log Pending to Conversation Log",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -313,7 +313,7 @@
       }
     },
     {
-      "id": "write-log-pending",
+      "id": "b04dfba1-ef0c-4bfe-8065-a2875b3a7f23",
       "name": "Write Pending Log Entry",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4,
@@ -333,7 +333,7 @@
       }
     },
     {
-      "id": "approval-webhook",
+      "id": "efa6f079-b081-4ddb-9c17-88f77eceb30f",
       "name": "Approval Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
@@ -349,7 +349,7 @@
       }
     },
     {
-      "id": "read-pending-for-approval",
+      "id": "1db2bb7a-b4ac-4470-a132-3094e3b0793e",
       "name": "Read Pending Approvals",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4,
@@ -365,7 +365,7 @@
       }
     },
     {
-      "id": "process-approval",
+      "id": "46a07264-14b3-4521-8649-4ae504913603",
       "name": "Process Approval",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -380,7 +380,7 @@
       }
     },
     {
-      "id": "update-pending-status",
+      "id": "09282542-dccd-4ce7-a34b-8c94312bd809",
       "name": "Update Pending Status",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4,
@@ -400,7 +400,7 @@
       }
     },
     {
-      "id": "approval-action-router",
+      "id": "4806e182-e486-4f97-a3f5-738a8f8d36d3",
       "name": "Approval Action Router",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
@@ -432,7 +432,7 @@
       }
     },
     {
-      "id": "log-approved-response",
+      "id": "fc0fd707-9cf1-4a46-8213-af7db1c565b9",
       "name": "Log Approved Response",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4,
@@ -452,7 +452,7 @@
       }
     },
     {
-      "id": "log-rejected",
+      "id": "6a34d70f-099e-4460-9067-8fb7cd0e07c8",
       "name": "Log Rejected",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4,
@@ -472,7 +472,7 @@
       }
     },
     {
-      "id": "read-team-escalation",
+      "id": "282de385-a913-4fe1-946c-ea99e916a481",
       "name": "Read Team Directory (Escalation)",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4,
@@ -488,7 +488,7 @@
       }
     },
     {
-      "id": "route-escalation",
+      "id": "fd745b91-e8aa-4bdd-a210-fbabc29b6500",
       "name": "Route Escalation",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -503,7 +503,7 @@
       }
     },
     {
-      "id": "send-escalation-alert",
+      "id": "74a7db65-3c24-49c2-b54c-fd9b4f674d64",
       "name": "Send Escalation Alert",
       "type": "n8n-nodes-base.slack",
       "typeVersion": 2,
@@ -519,7 +519,7 @@
       }
     },
     {
-      "id": "prepare-escalation-log",
+      "id": "5d4ef545-daf4-43ff-960c-d4adef2178d4",
       "name": "Prepare Escalation Log",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -534,7 +534,7 @@
       }
     },
     {
-      "id": "log-escalation",
+      "id": "89ee52d8-2e00-4f4a-a478-0eab85ad9cc6",
       "name": "Log Escalation",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4,
@@ -554,7 +554,7 @@
       }
     },
     {
-      "id": "check-add-to-kb",
+      "id": "e718b1c8-918c-4654-ac4b-d596c44f4aca",
       "name": "Check Add to KB",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
@@ -579,7 +579,7 @@
       }
     },
     {
-      "id": "create-kb-entry",
+      "id": "e69c090f-bcef-4c85-8130-7a25db1d3563",
       "name": "Create KB Entry",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -594,7 +594,7 @@
       }
     },
     {
-      "id": "write-new-kb-entry",
+      "id": "bcea7ea1-ff0d-4e53-947d-40fecf7c40cc",
       "name": "Write New KB Entry",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4,
@@ -614,7 +614,7 @@
       }
     },
     {
-      "id": "read-thread-history",
+      "id": "a557cca4-9ae9-4912-abbf-822e21c1ff61",
       "name": "Read Thread History",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4,
@@ -630,7 +630,7 @@
       }
     },
     {
-      "id": "followup-schedule",
+      "id": "72b2540c-84c0-41fb-a087-8b2dae540298",
       "name": "Follow-Up Schedule",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
@@ -650,7 +650,7 @@
       }
     },
     {
-      "id": "read-config-followup",
+      "id": "89fd0541-b736-451f-a1bf-d65ff3629262",
       "name": "Read Config (Follow-Up)",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4,
@@ -666,7 +666,7 @@
       }
     },
     {
-      "id": "read-log-followup",
+      "id": "ade8b7fb-c9b0-4cb9-b3f8-7544ad7b4fc3",
       "name": "Read Conversation Log (Follow-Up)",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4,
@@ -682,7 +682,7 @@
       }
     },
     {
-      "id": "find-stale",
+      "id": "f1a536da-8351-4619-aa8e-fb0bec29a9b5",
       "name": "Find Stale Conversations",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -697,7 +697,7 @@
       }
     },
     {
-      "id": "check-stale-exists",
+      "id": "6a7bd8ed-8ba3-479c-989e-255506102090",
       "name": "Has Stale Items?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
@@ -722,7 +722,7 @@
       }
     },
     {
-      "id": "send-stale-alert",
+      "id": "b74a3b5d-a9c8-4c1b-85b4-4fcd8ecdc938",
       "name": "Send Stale Alert",
       "type": "n8n-nodes-base.slack",
       "typeVersion": 2,
@@ -738,7 +738,7 @@
       }
     },
     {
-      "id": "digest-schedule",
+      "id": "fac6a56b-187e-4b28-a7c2-8a87fb436a16",
       "name": "Daily Digest Schedule",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
@@ -758,7 +758,7 @@
       }
     },
     {
-      "id": "read-config-digest",
+      "id": "92b01808-cfa2-44e0-b95e-44baebcd7d09",
       "name": "Read Config (Digest)",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4,
@@ -774,7 +774,7 @@
       }
     },
     {
-      "id": "read-log-digest",
+      "id": "366822be-6faa-483a-9375-81cc55fbe762",
       "name": "Read Conversation Log (Digest)",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4,
@@ -790,7 +790,7 @@
       }
     },
     {
-      "id": "prepare-digest",
+      "id": "b97222ea-537d-4ac4-a8f2-35e89c5ce984",
       "name": "Prepare Digest Data",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -805,7 +805,7 @@
       }
     },
     {
-      "id": "claude-digest",
+      "id": "57e6e9ee-e950-414b-bd6f-db83fb03b0da",
       "name": "Claude Generate Digest",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -839,7 +839,7 @@
       }
     },
     {
-      "id": "format-digest",
+      "id": "78bfd7ab-d34b-4e1e-bc31-7a6a5f86496b",
       "name": "Format Digest",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -854,7 +854,7 @@
       }
     },
     {
-      "id": "send-digest",
+      "id": "d9fa575a-237e-49d2-92c8-c4954146bc22",
       "name": "Send Daily Digest",
       "type": "n8n-nodes-base.slack",
       "typeVersion": 2,
@@ -870,7 +870,7 @@
       }
     },
     {
-      "id": "rate-limiter-read",
+      "id": "08e47366-cef3-49f7-bbc9-6b9a3b531b1e",
       "name": "Read Log for Rate Limit",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4,
@@ -886,7 +886,7 @@
       }
     },
     {
-      "id": "rate-limiter",
+      "id": "3feaff2a-f5bb-459f-80bd-b64c85341c11",
       "name": "Rate Limiter",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -901,7 +901,7 @@
       }
     },
     {
-      "id": "rate-limit-check",
+      "id": "9e04b60f-bf2a-41cc-8cad-f9461eb3eb22",
       "name": "Under Rate Limit?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
