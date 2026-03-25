@@ -1,0 +1,982 @@
+{
+  "name": "AI Support Agent",
+  "nodes": [
+    {
+      "id": "trigger-webhook",
+      "name": "Support Intake Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "support-intake",
+        "responseMode": "lastNode",
+        "responseData": "firstEntryJson"
+      }
+    },
+    {
+      "id": "normalize-message",
+      "name": "Normalize Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        300,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const item = $input.first().json;\nconst source = item.source || 'webhook';\nconst customer_id = item.email || item.customer_id || item.user_id || 'unknown';\nconst customer_name = item.name || item.customer_name || customer_id;\nconst message = item.message || item.text || item.body || '';\nconst subject = item.subject || '';\nconst timestamp = new Date().toISOString();\nconst thread_id = item.thread_id || item.threadId || '';\nconst is_reply = !!(item.is_reply || item.in_reply_to || thread_id);\n\nreturn [{\n  json: { source, customer_id, customer_name, message, subject, timestamp, thread_id, is_reply }\n}];"
+      }
+    },
+    {
+      "id": "read-kb",
+      "name": "Read Knowledge Base",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        600,
+        300
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": "PLACEHOLDER_SPREADSHEET_ID",
+        "sheetName": "Knowledge Base"
+      }
+    },
+    {
+      "id": "read-config",
+      "name": "Read Agent Config",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        900,
+        300
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": "PLACEHOLDER_SPREADSHEET_ID",
+        "sheetName": "Agent Config"
+      }
+    },
+    {
+      "id": "format-context",
+      "name": "Format Context for Claude",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const message = $('Normalize Message').first().json;\nconst kbEntries = $('Read Knowledge Base').all().map(i => i.json);\nconst configEntries = $('Read Agent Config').all().map(i => i.json);\n\nconst config = {};\nfor (const entry of configEntries) { config[entry.Setting] = entry.Value; }\n\nconst kbFormatted = kbEntries.map((entry, i) => {\n  const id = entry.ID || (i + 1);\n  return `[KB #${id}] Category: ${entry.Category}\\nQuestion Patterns: ${entry['Question Pattern']}\\nApproved Answer: ${entry['Approved Answer']}\\nConfidence Override: ${entry['Confidence Threshold Override'] || 'default'}`;\n}).join('\\n\\n');\n\nconst threshold = parseInt(config.confidence_threshold || '80');\n\n// Thread history for follow-up messages\nlet threadContext = '';\nif (message.is_reply && message.thread_id) {\n  try {\n    const logEntries = $('Read Thread History').all().map(i => i.json);\n    const history = logEntries\n      .filter(e => e['Thread ID'] === message.thread_id)\n      .sort((a, b) => new Date(a.Timestamp) - new Date(b.Timestamp))\n      .map(e => '[' + e.Timestamp + '] ' + (e['Action Taken'] || 'Customer') + ': ' + (e['Original Message'] || e['Response Sent'] || '').substring(0, 200))\n      .join('\\n');\n    if (history) threadContext = '\\n\\nCONVERSATION HISTORY (this is a follow-up):\\n' + history;\n  } catch (e) { /* no thread history */ }\n}\n\nconst systemPrompt = `You are a customer support AI agent for ${config.business_name || '[Your Business Name]'}.`,\n  + '\\n\\nYour task: analyze the incoming customer message and determine the best response.'\n  + `\\n\\nBUSINESS VOICE: ${config.business_voice || 'Professional but friendly. Use first names. Keep responses under 150 words.'}`\n  + `\\n\\nKNOWLEDGE BASE:\\n${kbFormatted || '(No entries yet)'}`\n  + `\\n\\nESCALATION KEYWORDS: ${config.escalation_keywords || 'urgent, refund, cancel, legal, lawyer, angry, furious, complaint, escalate'}`\n  + `\\n\\nCONFIDENCE THRESHOLD: ${threshold}`\n  + '\\n\\nINSTRUCTIONS:'\n  + '\\n1. Check for ESCALATION KEYWORDS first. If found, set action to \"escalate\".'\n  + '\\n2. Search the knowledge base semantically.'\n  + '\\n3. Rate confidence 0-100.'\n  + `\\n4. Determine action: confidence >= ${threshold} = \"auto_respond\", below = \"needs_approval\", keywords = \"escalate\".`\n  + '\\n5. Generate a natural, personalized response.'\n  + '\\n6. Return ONLY valid JSON:'\n  + '\\n{'\n  + '\\n  \"classification\": \"[category or Unknown]\",'\n  + '\\n  \"confidence\": [0-100],'\n  + '\\n  \"action\": \"auto_respond\" | \"needs_approval\" | \"escalate\",'\n  + '\\n  \"matched_kb_id\": [KB ID or null],'\n  + '\\n  \"response\": \"[response text]\",'\n  + '\\n  \"reasoning\": \"[one sentence]\",'\n  + '\\n  \"detected_intent\": \"[what customer wants]\",'\n  + '\\n  \"sentiment\": \"positive\" | \"neutral\" | \"frustrated\" | \"angry\"'\n  + '\\n}'\n  + threadContext;\n\nconst userMessage = `From: ${message.customer_name} (${message.customer_id})\\nSubject: ${message.subject || '(none)'}\\nMessage: ${message.message}`;\n\nreturn [{ json: { systemPrompt, userMessage, confidence_threshold: threshold, config, original_message: message } }];"
+      }
+    },
+    {
+      "id": "claude-classify",
+      "name": "Claude Classification",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1500,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "PLACEHOLDER_ANTHROPIC_API_KEY"
+            },
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 1024, system: $json.systemPrompt, messages: [{ role: 'user', content: $json.userMessage }] }) }}"
+      }
+    },
+    {
+      "id": "parse-response",
+      "name": "Parse Claude Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1800,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const response = $input.first().json;\nconst context = $('Format Context for Claude').first().json;\nconst originalMessage = context.original_message;\nconst threshold = context.confidence_threshold || 80;\n\nlet parsed;\ntry {\n  const text = response.content[0].text;\n  const jsonMatch = text.match(/\\{[\\s\\S]*\\}/);\n  parsed = JSON.parse(jsonMatch ? jsonMatch[0] : text);\n} catch (e) {\n  parsed = {\n    classification: 'Unknown', confidence: 0, action: 'needs_approval',\n    matched_kb_id: null, response: \"I apologize, but I wasn't able to process your request. A team member will assist you shortly.\",\n    reasoning: 'Failed to parse AI response: ' + e.message, detected_intent: 'unknown', sentiment: 'neutral'\n  };\n}\n\nif (parsed.action === 'auto_respond' && parsed.confidence < threshold) {\n  parsed.action = 'needs_approval';\n  parsed.reasoning += ' (confidence below threshold, routing to human)';\n}\n\nreturn [{\n  json: {\n    ...parsed,\n    source: originalMessage.source, customer_id: originalMessage.customer_id,\n    customer_name: originalMessage.customer_name, message: originalMessage.message,\n    subject: originalMessage.subject, timestamp: originalMessage.timestamp,\n    thread_id: originalMessage.thread_id, is_reply: originalMessage.is_reply,\n    config: context.config\n  }\n}];"
+      }
+    },
+    {
+      "id": "confidence-router",
+      "name": "Confidence Router",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        2100,
+        300
+      ],
+      "parameters": {
+        "mode": "rules",
+        "dataType": "string",
+        "value1": "={{ $json.action }}",
+        "rules": {
+          "rules": [
+            {
+              "value2": "auto_respond",
+              "output": 0
+            },
+            {
+              "value2": "needs_approval",
+              "output": 1
+            },
+            {
+              "value2": "escalate",
+              "output": 2
+            }
+          ]
+        },
+        "fallbackOutput": 1
+      }
+    },
+    {
+      "id": "format-auto-response",
+      "name": "Format Auto-Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2400,
+        100
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const data = $input.first().json;\nconst signature = (data.config && data.config.welcome_signature) || 'Best regards, Support Team';\nconst formattedResponse = data.response + '\\n\\n' + signature;\n\nreturn [{\n  json: {\n    Timestamp: data.timestamp, 'Source Channel': data.source,\n    'Customer Identifier': data.customer_id,\n    'Original Message': (data.message || '').substring(0, 500),\n    'AI Classification': data.classification, 'Confidence Score': data.confidence,\n    'Action Taken': 'Auto-responded',\n    'Response Sent': formattedResponse,\n    'Response Source': 'Auto (KB #' + (data.matched_kb_id || 'AI') + ')',\n    'Thread ID': data.thread_id || '', 'Resolution Status': 'Resolved',\n    'Time to Response': Math.floor((Date.now() - new Date(data.timestamp).getTime()) / 1000),\n    formatted_response: formattedResponse, matched_kb_id: data.matched_kb_id,\n    customer_name: data.customer_name, source: data.source,\n    sentiment: data.sentiment, detected_intent: data.detected_intent, reasoning: data.reasoning\n  }\n}];"
+      }
+    },
+    {
+      "id": "log-auto-response",
+      "name": "Log to Conversation Log",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        2700,
+        100
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "append",
+        "documentId": "PLACEHOLDER_SPREADSHEET_ID",
+        "sheetName": "Conversation Log",
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {}
+        }
+      }
+    },
+    {
+      "id": "update-kb-stats",
+      "name": "Update KB Usage Stats",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        3000,
+        100
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "update",
+        "documentId": "PLACEHOLDER_SPREADSHEET_ID",
+        "sheetName": "Knowledge Base",
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {}
+        }
+      }
+    },
+    {
+      "id": "prepare-pending",
+      "name": "Prepare Pending Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2400,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const data = $input.first().json;\nconst pendingId = 'PND-' + Date.now();\n\nreturn [{\n  json: {\n    // Pending Approvals sheet columns\n    ID: pendingId,\n    Timestamp: data.timestamp,\n    'Customer Identifier': data.customer_id,\n    'Original Message': (data.message || '').substring(0, 500),\n    'AI Draft Response': data.response,\n    'Matched KB Entry': data.matched_kb_id ? 'KB #' + data.matched_kb_id : 'No match - AI generated from context',\n    'Confidence Score': data.confidence,\n    Status: 'Pending',\n    'Approved By': '',\n    'Final Response': '',\n    'Add to KB?': '',\n    'New KB Category': '',\n    // Pass-through for downstream nodes\n    _classification: data.classification,\n    _customer_name: data.customer_name,\n    _customer_id: data.customer_id,\n    _source: data.source,\n    _subject: data.subject,\n    _thread_id: data.thread_id,\n    _sentiment: data.sentiment,\n    _detected_intent: data.detected_intent,\n    _reasoning: data.reasoning,\n    _message: data.message,\n    _response: data.response,\n    _confidence: data.confidence,\n    _pending_id: pendingId\n  }\n}];"
+      }
+    },
+    {
+      "id": "write-pending",
+      "name": "Write Pending Approval",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        2700,
+        300
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "append",
+        "documentId": "PLACEHOLDER_SPREADSHEET_ID",
+        "sheetName": "Pending Approvals",
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {}
+        }
+      }
+    },
+    {
+      "id": "read-team-directory",
+      "name": "Read Team Directory",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        3000,
+        300
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": "PLACEHOLDER_SPREADSHEET_ID",
+        "sheetName": "Team Directory"
+      }
+    },
+    {
+      "id": "route-to-reviewer",
+      "name": "Route to Reviewer",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3300,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const pendingData = $('Prepare Pending Data').first().json;\nconst teamMembers = $('Read Team Directory').all().map(i => i.json);\nconst classification = pendingData._classification || 'Unknown';\n\n// Find reviewer by category ownership\nlet reviewer = teamMembers.find(member => {\n  if (String(member.Status).toLowerCase() === 'away') return false;\n  const categories = (member['Owns Categories'] || '').split(',').map(c => c.trim().toLowerCase());\n  return categories.includes(classification.toLowerCase());\n});\n\n// Fallback: default handler\nif (!reviewer) {\n  reviewer = teamMembers.find(m =>\n    String(m['Is Default']).toLowerCase() === 'yes' &&\n    String(m.Status).toLowerCase() !== 'away'\n  );\n}\n\n// Final fallback: first active member\nif (!reviewer) {\n  reviewer = teamMembers.find(m => String(m.Status).toLowerCase() !== 'away')\n    || teamMembers[0]\n    || { Name: 'Support Team', Email: '', 'Slack ID': '' };\n}\n\nconst msg = pendingData;\nconst notificationText = `*New Support Message Needs Review*\\n\\n` +\n  `*From:* ${msg._customer_name} (${msg._customer_id})\\n` +\n  `*Category:* ${msg._classification} | *Confidence:* ${msg._confidence}% | *Sentiment:* ${msg._sentiment}\\n\\n` +\n  `*Customer Message:*\\n> ${msg['Original Message']}\\n\\n` +\n  `*AI Draft Response:*\\n> ${msg['AI Draft Response']}\\n\\n` +\n  `*Reasoning:* ${msg._reasoning}\\n\\n` +\n  `---\\n` +\n  `*To approve:* Update Status to \\\"Approved\\\" in Pending Approvals sheet (row: ${msg._pending_id})\\n` +\n  `*To edit:* Write your response in \\\"Final Response\\\" column, then set Status to \\\"Approved\\\"\\n` +\n  `*To reject:* Set Status to \\\"Rejected\\\"\\n` +\n  `*To add to KB:* Set \\\"Add to KB?\\\" to \\\"Yes\\\" and fill \\\"New KB Category\\\"\\n\\n` +\n  `Or POST to the approval webhook:\\n` +\n  `\\`/webhook/support-approval\\` with \\`{\"action\":\"approve\",\"pending_id\":\"${msg._pending_id}\",\"approver\":\"${reviewer.Name}\"}\\``;\n\nreturn [{\n  json: {\n    reviewer_name: reviewer.Name,\n    reviewer_email: reviewer.Email || '',\n    reviewer_slack_id: reviewer['Slack ID'] || '',\n    notification_text: notificationText,\n    // Pass-through for logging\n    _pending_id: msg._pending_id,\n    _customer_id: msg._customer_id,\n    _customer_name: msg._customer_name,\n    _source: msg._source,\n    _classification: msg._classification,\n    _confidence: msg._confidence,\n    _message: msg._message,\n    _timestamp: msg.Timestamp,\n    _thread_id: msg._thread_id\n  }\n}];"
+      }
+    },
+    {
+      "id": "send-review-notification",
+      "name": "Send Review Notification",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2,
+      "position": [
+        3600,
+        300
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "channel": "={{ $json.reviewer_slack_id }}",
+        "text": "={{ $json.notification_text }}"
+      }
+    },
+    {
+      "id": "log-pending",
+      "name": "Log Pending to Conversation Log",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3900,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const data = $('Route to Reviewer').first().json;\n\nreturn [{\n  json: {\n    Timestamp: data._timestamp,\n    'Source Channel': data._source,\n    'Customer Identifier': data._customer_id,\n    'Original Message': (data._message || '').substring(0, 500),\n    'AI Classification': data._classification,\n    'Confidence Score': data._confidence,\n    'Action Taken': 'Sent to ' + data.reviewer_name + ' for approval',\n    'Response Sent': '',\n    'Response Source': 'Pending approval',\n    'Thread ID': data._thread_id || '',\n    'Resolution Status': 'Open',\n    'Time to Response': 0\n  }\n}];"
+      }
+    },
+    {
+      "id": "write-log-pending",
+      "name": "Write Pending Log Entry",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        4200,
+        300
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "append",
+        "documentId": "PLACEHOLDER_SPREADSHEET_ID",
+        "sheetName": "Conversation Log",
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {}
+        }
+      }
+    },
+    {
+      "id": "approval-webhook",
+      "name": "Approval Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        2400,
+        800
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "support-approval",
+        "responseMode": "lastNode",
+        "responseData": "firstEntryJson"
+      }
+    },
+    {
+      "id": "read-pending-for-approval",
+      "name": "Read Pending Approvals",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        2700,
+        800
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": "PLACEHOLDER_SPREADSHEET_ID",
+        "sheetName": "Pending Approvals"
+      }
+    },
+    {
+      "id": "process-approval",
+      "name": "Process Approval",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3000,
+        800
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const webhook = $('Approval Webhook').first().json;\nconst pendingRows = $('Read Pending Approvals').all().map(i => i.json);\n\n// Find the matching pending approval\nconst pendingId = webhook.pending_id || '';\nlet pending = pendingRows.find(r => r.ID === pendingId);\n\nif (!pending) {\n  // Try matching by customer identifier + timestamp\n  pending = pendingRows.find(r =>\n    r.Status === 'Pending' &&\n    (!pendingId || r.ID === pendingId)\n  );\n}\n\nif (!pending) {\n  return [{ json: { error: 'Pending approval not found', pending_id: pendingId, status: 'error' } }];\n}\n\nconst action = (webhook.action || 'approve').toLowerCase();\nconst approver = webhook.approver || 'Unknown';\nconst editedResponse = webhook.edited_response || '';\nconst addToKb = webhook.add_to_kb || 'No';\nconst newKbCategory = webhook.new_kb_category || pending['AI Classification'] || '';\n\nlet finalResponse = editedResponse || pending['AI Draft Response'] || '';\nlet status, responseSource;\n\nif (action === 'approve') {\n  status = 'Approved';\n  responseSource = editedResponse ? 'Human-written' : 'Human-approved draft';\n} else if (action === 'edit') {\n  status = 'Approved';\n  responseSource = 'Human-written';\n  finalResponse = editedResponse;\n} else if (action === 'reject') {\n  status = 'Rejected';\n  responseSource = 'Rejected';\n  finalResponse = '';\n} else {\n  status = 'Approved';\n  responseSource = 'Human-approved draft';\n}\n\nreturn [{\n  json: {\n    // For updating Pending Approvals sheet\n    ID: pending.ID,\n    Status: status,\n    'Approved By': approver,\n    'Final Response': finalResponse,\n    'Add to KB?': addToKb,\n    'New KB Category': newKbCategory,\n    // For downstream: Conversation Log\n    Timestamp: new Date().toISOString(),\n    'Source Channel': pending['Source Channel'] || 'webhook',\n    'Customer Identifier': pending['Customer Identifier'],\n    'Original Message': pending['Original Message'],\n    'AI Classification': pending['AI Classification'] || '',\n    'Confidence Score': pending['Confidence Score'] || 0,\n    'Action Taken': action === 'reject' ? 'Rejected by ' + approver : 'Approved by ' + approver,\n    'Response Sent': finalResponse,\n    'Response Source': responseSource,\n    'Thread ID': '',\n    'Resolution Status': action === 'reject' ? 'Rejected' : 'Resolved',\n    'Time to Response': 0,\n    // Control flags\n    _action: action,\n    _add_to_kb: addToKb,\n    _new_kb_category: newKbCategory,\n    _customer_name: pending['Customer Identifier'],\n    _original_message: pending['Original Message'],\n    _final_response: finalResponse,\n    _approver: approver\n  }\n}];"
+      }
+    },
+    {
+      "id": "update-pending-status",
+      "name": "Update Pending Status",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        3300,
+        800
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "update",
+        "documentId": "PLACEHOLDER_SPREADSHEET_ID",
+        "sheetName": "Pending Approvals",
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {}
+        }
+      }
+    },
+    {
+      "id": "approval-action-router",
+      "name": "Approval Action Router",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        3600,
+        800
+      ],
+      "parameters": {
+        "mode": "rules",
+        "dataType": "string",
+        "value1": "={{ $json._action }}",
+        "rules": {
+          "rules": [
+            {
+              "value2": "approve",
+              "output": 0
+            },
+            {
+              "value2": "edit",
+              "output": 0
+            },
+            {
+              "value2": "reject",
+              "output": 1
+            }
+          ]
+        },
+        "fallbackOutput": 0
+      }
+    },
+    {
+      "id": "log-approved-response",
+      "name": "Log Approved Response",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        3900,
+        700
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "append",
+        "documentId": "PLACEHOLDER_SPREADSHEET_ID",
+        "sheetName": "Conversation Log",
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {}
+        }
+      }
+    },
+    {
+      "id": "log-rejected",
+      "name": "Log Rejected",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        3900,
+        900
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "append",
+        "documentId": "PLACEHOLDER_SPREADSHEET_ID",
+        "sheetName": "Conversation Log",
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {}
+        }
+      }
+    },
+    {
+      "id": "read-team-escalation",
+      "name": "Read Team Directory (Escalation)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        2400,
+        500
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": "PLACEHOLDER_SPREADSHEET_ID",
+        "sheetName": "Team Directory"
+      }
+    },
+    {
+      "id": "route-escalation",
+      "name": "Route Escalation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2700,
+        500
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const data = $('Parse Claude Response').first().json;\nconst teamMembers = $('Read Team Directory (Escalation)').all().map(i => i.json);\nconst classification = data.classification || 'Unknown';\n\nlet owner = teamMembers.find(m => {\n  if (String(m.Status).toLowerCase() === 'away') return false;\n  const cats = (m['Owns Categories'] || '').split(',').map(c => c.trim().toLowerCase());\n  return cats.includes(classification.toLowerCase());\n});\nif (!owner) owner = teamMembers.find(m => String(m['Is Default']).toLowerCase() === 'yes' && String(m.Status).toLowerCase() !== 'away');\nif (!owner) owner = teamMembers.find(m => String(m.Status).toLowerCase() !== 'away') || teamMembers[0] || { Name: 'Support Team', 'Slack ID': '', Email: '' };\n\nconst alertText = '*URGENT: Support Message Requires Immediate Attention*\\n\\n' +\n  '*From:* ' + data.customer_name + ' (' + data.customer_id + ')\\n' +\n  '*Category:* ' + data.classification + ' | *Sentiment:* ' + data.sentiment + '\\n' +\n  '*Intent:* ' + data.detected_intent + '\\n\\n' +\n  '*Full Message:*\\n> ' + data.message + '\\n\\n' +\n  '*AI Reasoning:* ' + data.reasoning + '\\n\\n' +\n  '_Routed to: ' + owner.Name + '_';\n\nreturn [{ json: {\n  owner_name: owner.Name, owner_email: owner.Email || '', owner_slack_id: owner['Slack ID'] || '',\n  alert_text: alertText,\n  customer_id: data.customer_id, customer_name: data.customer_name, source: data.source,\n  message: data.message, subject: data.subject, timestamp: data.timestamp,\n  thread_id: data.thread_id, classification: data.classification, confidence: data.confidence,\n  sentiment: data.sentiment, reasoning: data.reasoning\n} }];"
+      }
+    },
+    {
+      "id": "send-escalation-alert",
+      "name": "Send Escalation Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2,
+      "position": [
+        3000,
+        500
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "channel": "={{ $json.owner_slack_id }}",
+        "text": "={{ $json.alert_text }}"
+      }
+    },
+    {
+      "id": "prepare-escalation-log",
+      "name": "Prepare Escalation Log",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3300,
+        500
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const data = $input.first().json;\nreturn [{ json: {\n  Timestamp: data.timestamp,\n  'Source Channel': data.source,\n  'Customer Identifier': data.customer_id,\n  'Original Message': (data.message || '').substring(0, 500),\n  'AI Classification': data.classification,\n  'Confidence Score': data.confidence,\n  'Action Taken': 'Escalated to ' + data.owner_name,\n  'Response Sent': \"I've flagged your message for our team and someone will get back to you shortly.\",\n  'Response Source': 'Escalation auto-ack',\n  'Thread ID': data.thread_id || '',\n  'Resolution Status': 'Escalated',\n  'Time to Response': Math.floor((Date.now() - new Date(data.timestamp).getTime()) / 1000)\n} }];"
+      }
+    },
+    {
+      "id": "log-escalation",
+      "name": "Log Escalation",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        3600,
+        500
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "append",
+        "documentId": "PLACEHOLDER_SPREADSHEET_ID",
+        "sheetName": "Conversation Log",
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {}
+        }
+      }
+    },
+    {
+      "id": "check-add-to-kb",
+      "name": "Check Add to KB",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        4200,
+        700
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json._add_to_kb }}",
+              "rightValue": "Yes",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "create-kb-entry",
+      "name": "Create KB Entry",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4500,
+        600
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const data = $input.first().json;\nreturn [{ json: {\n  Category: data._new_kb_category || data['AI Classification'] || 'General',\n  'Question Pattern': (data._original_message || data['Original Message'] || '').substring(0, 300),\n  'Approved Answer': data._final_response || data['Final Response'] || data['Response Sent'] || '',\n  Source: 'Learned from ' + (data._approver || 'human') + ' on ' + new Date().toISOString().split('T')[0],\n  'Times Used': 0,\n  'Last Used': '',\n  'Confidence Threshold Override': ''\n} }];"
+      }
+    },
+    {
+      "id": "write-new-kb-entry",
+      "name": "Write New KB Entry",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        4800,
+        600
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "append",
+        "documentId": "PLACEHOLDER_SPREADSHEET_ID",
+        "sheetName": "Knowledge Base",
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {}
+        }
+      }
+    },
+    {
+      "id": "read-thread-history",
+      "name": "Read Thread History",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        1050,
+        300
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": "PLACEHOLDER_SPREADSHEET_ID",
+        "sheetName": "Conversation Log"
+      }
+    }
+  ],
+  "connections": {
+    "Support Intake Webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalize Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Message": {
+      "main": [
+        [
+          {
+            "node": "Read Knowledge Base",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Knowledge Base": {
+      "main": [
+        [
+          {
+            "node": "Read Agent Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Agent Config": {
+      "main": [
+        [
+          {
+            "node": "Read Thread History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Context for Claude": {
+      "main": [
+        [
+          {
+            "node": "Claude Classification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude Classification": {
+      "main": [
+        [
+          {
+            "node": "Parse Claude Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Claude Response": {
+      "main": [
+        [
+          {
+            "node": "Confidence Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Confidence Router": {
+      "main": [
+        [
+          {
+            "node": "Format Auto-Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Pending Data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Read Team Directory (Escalation)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Auto-Response": {
+      "main": [
+        [
+          {
+            "node": "Log to Conversation Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log to Conversation Log": {
+      "main": [
+        [
+          {
+            "node": "Update KB Usage Stats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Pending Data": {
+      "main": [
+        [
+          {
+            "node": "Write Pending Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write Pending Approval": {
+      "main": [
+        [
+          {
+            "node": "Read Team Directory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Team Directory": {
+      "main": [
+        [
+          {
+            "node": "Route to Reviewer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route to Reviewer": {
+      "main": [
+        [
+          {
+            "node": "Send Review Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Review Notification": {
+      "main": [
+        [
+          {
+            "node": "Log Pending to Conversation Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Pending to Conversation Log": {
+      "main": [
+        [
+          {
+            "node": "Write Pending Log Entry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approval Webhook": {
+      "main": [
+        [
+          {
+            "node": "Read Pending Approvals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Pending Approvals": {
+      "main": [
+        [
+          {
+            "node": "Process Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Approval": {
+      "main": [
+        [
+          {
+            "node": "Update Pending Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Pending Status": {
+      "main": [
+        [
+          {
+            "node": "Approval Action Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approval Action Router": {
+      "main": [
+        [
+          {
+            "node": "Log Approved Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Thread History": {
+      "main": [
+        [
+          {
+            "node": "Format Context for Claude",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Team Directory (Escalation)": {
+      "main": [
+        [
+          {
+            "node": "Route Escalation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Escalation": {
+      "main": [
+        [
+          {
+            "node": "Send Escalation Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Escalation Alert": {
+      "main": [
+        [
+          {
+            "node": "Prepare Escalation Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Escalation Log": {
+      "main": [
+        [
+          {
+            "node": "Log Escalation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Approved Response": {
+      "main": [
+        [
+          {
+            "node": "Check Add to KB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Add to KB": {
+      "main": [
+        [
+          {
+            "node": "Create KB Entry",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Create KB Entry": {
+      "main": [
+        [
+          {
+            "node": "Write New KB Entry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
