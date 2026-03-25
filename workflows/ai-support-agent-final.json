@@ -139,25 +139,64 @@
       ],
       "parameters": {
         "mode": "rules",
-        "dataType": "string",
-        "value1": "={{ $json.action }}",
         "rules": {
-          "rules": [
+          "values": [
             {
-              "value2": "auto_respond",
-              "output": 0
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "auto_respond",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Auto-Respond"
             },
             {
-              "value2": "needs_approval",
-              "output": 1
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "needs_approval",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Needs Approval"
             },
             {
-              "value2": "escalate",
-              "output": 2
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "escalate",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Escalate"
             }
           ]
         },
-        "fallbackOutput": 1
+        "options": {
+          "fallbackOutput": "extra"
+        }
       }
     },
     {
@@ -410,25 +449,64 @@
       ],
       "parameters": {
         "mode": "rules",
-        "dataType": "string",
-        "value1": "={{ $json._action }}",
         "rules": {
-          "rules": [
+          "values": [
             {
-              "value2": "approve",
-              "output": 0
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json._action }}",
+                    "rightValue": "approve",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "or"
+              },
+              "renameOutput": true,
+              "outputKey": "Approve/Edit"
             },
             {
-              "value2": "edit",
-              "output": 0
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json._action }}",
+                    "rightValue": "edit",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Edit"
             },
             {
-              "value2": "reject",
-              "output": 1
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json._action }}",
+                    "rightValue": "reject",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Reject"
             }
           ]
         },
-        "fallbackOutput": 0
+        "options": {
+          "fallbackOutput": "extra"
+        }
       }
     },
     {
@@ -1026,7 +1104,8 @@
             "type": "main",
             "index": 0
           }
-        ]
+        ],
+        []
       ]
     },
     "Format Auto-Response": {
@@ -1172,11 +1251,19 @@
         ],
         [
           {
+            "node": "Log Approved Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
             "node": "Log Rejected",
             "type": "main",
             "index": 0
           }
-        ]
+        ],
+        []
       ]
     },
     "Read Thread History": {
