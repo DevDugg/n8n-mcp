@@ -209,7 +209,7 @@ const formatContextCode = [
   "  } catch (e) { /* no thread history */ }",
   "}",
   "",
-  "const systemPrompt = `You are a customer support AI agent for ${config.business_name || '[Your Business Name]'}.`,",
+  "const systemPrompt = `You are a customer support AI agent for ${config.business_name || '[Your Business Name]'}.`",
   "  + '\\n\\nYour task: analyze the incoming customer message and determine the best response.'",
   "  + `\\n\\nBUSINESS VOICE: ${config.business_voice || 'Professional but friendly. Use first names. Keep responses under 150 words.'}`",
   "  + `\\n\\nKNOWLEDGE BASE:\\n${kbFormatted || '(No entries yet)'}`",
