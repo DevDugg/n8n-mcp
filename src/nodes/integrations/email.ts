@@ -12,7 +12,7 @@ export const EMAIL_NODES: Record<string, NodeSchema> = {
     displayName: "Gmail",
     description: "Send, read, and manage emails via Gmail API",
     category: "email",
-    typeVersion: 2,
+    typeVersion: 2.2,
     inputs: ["main"],
     outputs: ["main"],
     credentials: [

@@ -1,7 +1,7 @@
 /**
  * N8N Node Catalog - Main Barrel Export
  *
- * Combines all node modules into a unified catalog of 303+ nodes
+ * Combines all node modules into a unified catalog of 300+ nodes
  */
 
 import type { NodeSchema, NodeCategory } from "./types.js";
@@ -46,7 +46,7 @@ export {
 } from "./integrations/index.js";
 
 /**
- * Complete Node Catalog - All 303+ n8n nodes
+ * Complete Node Catalog - All 300+ n8n nodes
  */
 export const NODE_CATALOG: Record<string, NodeSchema> = {
   ...TRIGGER_NODES,

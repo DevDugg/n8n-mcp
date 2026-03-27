@@ -12,7 +12,7 @@ export const AI_ML_NODES: Record<string, NodeSchema> = {
     displayName: "OpenAI",
     description: "Use OpenAI models for text, chat, images, and embeddings",
     category: "ai",
-    typeVersion: 1,
+    typeVersion: 1.1,
     inputs: ["main"],
     outputs: ["main"],
     credentials: [

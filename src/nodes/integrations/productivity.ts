@@ -12,7 +12,7 @@ export const PRODUCTIVITY_NODES: Record<string, NodeSchema> = {
     displayName: "Google Sheets",
     description: "Read, write, and manage data in Google Sheets",
     category: "productivity",
-    typeVersion: 4,
+    typeVersion: 4.7,
     inputs: ["main"],
     outputs: ["main"],
     credentials: [
@@ -116,7 +116,7 @@ export const PRODUCTIVITY_NODES: Record<string, NodeSchema> = {
     displayName: "Airtable",
     description: "Read, create, update, and delete records in Airtable",
     category: "productivity",
-    typeVersion: 2,
+    typeVersion: 2.2,
     inputs: ["main"],
     outputs: ["main"],
     credentials: [
@@ -206,7 +206,7 @@ export const PRODUCTIVITY_NODES: Record<string, NodeSchema> = {
     displayName: "Google Calendar",
     description: "Create, read, update, and delete calendar events",
     category: "productivity",
-    typeVersion: 1,
+    typeVersion: 1.3,
     inputs: ["main"],
     outputs: ["main"],
     credentials: [
@@ -365,7 +365,7 @@ export const PRODUCTIVITY_NODES: Record<string, NodeSchema> = {
     displayName: "Microsoft Excel 365",
     description: "Read and write data in Microsoft Excel Online",
     category: "productivity",
-    typeVersion: 2,
+    typeVersion: 2.2,
     inputs: ["main"],
     outputs: ["main"],
     credentials: [

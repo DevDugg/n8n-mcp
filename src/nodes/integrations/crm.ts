@@ -111,7 +111,7 @@ export const CRM_NODES: Record<string, NodeSchema> = {
     displayName: "HubSpot",
     description: "Manage contacts, companies, deals, and tickets in HubSpot",
     category: "crm",
-    typeVersion: 2,
+    typeVersion: 2.2,
     inputs: ["main"],
     outputs: ["main"],
     credentials: [

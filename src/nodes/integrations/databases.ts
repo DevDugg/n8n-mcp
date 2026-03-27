@@ -12,7 +12,7 @@ export const DATABASE_NODES: Record<string, NodeSchema> = {
     displayName: "Postgres",
     description: "Execute SQL queries on PostgreSQL databases",
     category: "database",
-    typeVersion: 2,
+    typeVersion: 2.6,
     inputs: ["main"],
     outputs: ["main"],
     credentials: [
@@ -102,7 +102,7 @@ export const DATABASE_NODES: Record<string, NodeSchema> = {
     displayName: "MySQL",
     description: "Execute SQL queries on MySQL databases",
     category: "database",
-    typeVersion: 2,
+    typeVersion: 2.5,
     inputs: ["main"],
     outputs: ["main"],
     credentials: [
@@ -166,7 +166,7 @@ export const DATABASE_NODES: Record<string, NodeSchema> = {
     displayName: "MongoDB",
     description: "Perform operations on MongoDB collections",
     category: "database",
-    typeVersion: 1,
+    typeVersion: 1.2,
     inputs: ["main"],
     outputs: ["main"],
     credentials: [

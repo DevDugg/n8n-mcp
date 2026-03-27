@@ -10,7 +10,7 @@ export const CORE_NODES: Record<string, NodeSchema> = {
     displayName: "HTTP Request",
     description: "Make HTTP requests to any URL. Supports all methods, authentication, headers, body, and pagination.",
     category: "core",
-    typeVersion: 4.2,
+    typeVersion: 4.4,
     inputs: ["main"],
     outputs: ["main"],
     parameters: [
@@ -355,7 +355,7 @@ return items;`,
     displayName: "Execute Workflow",
     description: "Execute another workflow and optionally return data",
     category: "core",
-    typeVersion: 1,
+    typeVersion: 1.3,
     inputs: ["main"],
     outputs: ["main"],
     parameters: [
@@ -407,7 +407,7 @@ return items;`,
     displayName: "Crypto",
     description: "Perform cryptographic operations (hash, encrypt, decrypt, sign, verify)",
     category: "core",
-    typeVersion: 1,
+    typeVersion: 2,
     inputs: ["main"],
     outputs: ["main"],
     parameters: [
@@ -646,151 +646,6 @@ return items;`,
       },
     ],
     documentationUrl: "https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.jwt/",
-  },
-
-  "n8n-nodes-base.ssh": {
-    type: "n8n-nodes-base.ssh",
-    displayName: "SSH",
-    description: "Execute commands on remote servers via SSH",
-    category: "core",
-    typeVersion: 1,
-    inputs: ["main"],
-    outputs: ["main"],
-    parameters: [
-      {
-        name: "operation",
-        type: "options",
-        required: true,
-        default: "execute",
-        description: "Operation to perform",
-        options: [
-          { name: "Execute Command", value: "execute" },
-          { name: "Download File", value: "download" },
-          { name: "Upload File", value: "upload" },
-        ],
-      },
-      {
-        name: "command",
-        type: "string",
-        required: false,
-        description: "Command to execute",
-      },
-      {
-        name: "cwd",
-        type: "string",
-        required: false,
-        description: "Working directory",
-      },
-    ],
-    credentials: [
-      {
-        name: "sshPassword",
-        required: false,
-        description: "SSH credentials (password)",
-      },
-      {
-        name: "sshPrivateKey",
-        required: false,
-        description: "SSH credentials (private key)",
-      },
-    ],
-    examples: [
-      {
-        name: "Remote Command",
-        description: "Execute command on remote server",
-        parameters: {
-          operation: "execute",
-          command: "ls -la /var/log",
-        },
-      },
-      {
-        name: "Download File",
-        description: "Download file from remote server",
-        parameters: {
-          operation: "download",
-          path: "/var/log/app.log",
-        },
-      },
-    ],
-    documentationUrl: "https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.ssh/",
-  },
-
-  "n8n-nodes-base.ftp": {
-    type: "n8n-nodes-base.ftp",
-    displayName: "FTP",
-    description: "Upload, download, and manage files on FTP/SFTP servers",
-    category: "core",
-    typeVersion: 1,
-    inputs: ["main"],
-    outputs: ["main"],
-    parameters: [
-      {
-        name: "protocol",
-        type: "options",
-        required: true,
-        default: "ftp",
-        description: "Protocol to use",
-        options: [
-          { name: "FTP", value: "ftp" },
-          { name: "SFTP", value: "sftp" },
-        ],
-      },
-      {
-        name: "operation",
-        type: "options",
-        required: true,
-        default: "list",
-        description: "Operation to perform",
-        options: [
-          { name: "Delete", value: "delete" },
-          { name: "Download", value: "download" },
-          { name: "List", value: "list" },
-          { name: "Rename", value: "rename" },
-          { name: "Upload", value: "upload" },
-        ],
-      },
-      {
-        name: "path",
-        type: "string",
-        required: true,
-        description: "Remote path",
-        placeholder: "/uploads/",
-      },
-    ],
-    credentials: [
-      {
-        name: "ftp",
-        required: false,
-        description: "FTP credentials",
-      },
-      {
-        name: "sftp",
-        required: false,
-        description: "SFTP credentials",
-      },
-    ],
-    examples: [
-      {
-        name: "Upload File",
-        description: "Upload a file to FTP server",
-        parameters: {
-          protocol: "sftp",
-          operation: "upload",
-          path: "/uploads/",
-          binaryPropertyName: "data",
-        },
-      },
-      {
-        name: "List Directory",
-        description: "List files in a directory",
-        parameters: {
-          protocol: "sftp",
-          operation: "list",
-          path: "/uploads/",
-        },
-      },
-    ],
-    documentationUrl: "https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.ftp/",
   },
 
   "n8n-nodes-base.graphql": {
@@ -1240,7 +1095,7 @@ return items;`,
     displayName: "HTML",
     description: "Extract data from HTML or generate HTML from templates",
     category: "core",
-    typeVersion: 1,
+    typeVersion: 1.2,
     inputs: ["main"],
     outputs: ["main"],
     parameters: [
@@ -1349,97 +1204,6 @@ return items;`,
       },
     ],
     documentationUrl: "https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.markdown/",
-  },
-
-  "n8n-nodes-base.emailSend": {
-    type: "n8n-nodes-base.emailSend",
-    displayName: "Send Email",
-    description: "Send emails via SMTP",
-    category: "core",
-    typeVersion: 2.1,
-    inputs: ["main"],
-    outputs: ["main"],
-    parameters: [
-      {
-        name: "fromEmail",
-        type: "string",
-        required: true,
-        description: "From email address",
-      },
-      {
-        name: "toEmail",
-        type: "string",
-        required: true,
-        description: "To email address(es)",
-      },
-      {
-        name: "subject",
-        type: "string",
-        required: true,
-        description: "Email subject",
-      },
-      {
-        name: "emailFormat",
-        type: "options",
-        required: true,
-        default: "text",
-        description: "Email format",
-        options: [
-          { name: "Text", value: "text" },
-          { name: "HTML", value: "html" },
-        ],
-      },
-      {
-        name: "text",
-        type: "string",
-        required: false,
-        description: "Plain text body",
-      },
-      {
-        name: "html",
-        type: "string",
-        required: false,
-        description: "HTML body",
-      },
-      {
-        name: "options",
-        type: "collection",
-        required: false,
-        description: "Additional options: cc, bcc, replyTo, attachments",
-      },
-    ],
-    credentials: [
-      {
-        name: "smtp",
-        required: true,
-        description: "SMTP credentials",
-      },
-    ],
-    examples: [
-      {
-        name: "Send Email",
-        description: "Send a plain text email",
-        parameters: {
-          fromEmail: "sender@example.com",
-          toEmail: "={{ $json.email }}",
-          subject: "Notification from n8n",
-          emailFormat: "text",
-          text: "Hello,\n\nThis is an automated message.",
-        },
-      },
-      {
-        name: "HTML Email",
-        description: "Send an HTML email",
-        parameters: {
-          fromEmail: "sender@example.com",
-          toEmail: "={{ $json.email }}",
-          subject: "Welcome!",
-          emailFormat: "html",
-          html: "<h1>Welcome!</h1><p>Thank you for signing up.</p>",
-        },
-      },
-    ],
-    documentationUrl: "https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.emailsend/",
   },
 
   "n8n-nodes-base.ldap": {
@@ -1657,64 +1421,6 @@ return items;`,
     documentationUrl: "https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.debughelper/",
   },
 
-  "n8n-nodes-base.itemLists": {
-    type: "n8n-nodes-base.itemLists",
-    displayName: "Item Lists",
-    description: "Manipulate item lists with operations like concatenate, limit, sort, split, and summarize",
-    category: "core",
-    typeVersion: 3.1,
-    inputs: ["main"],
-    outputs: ["main"],
-    parameters: [
-      {
-        name: "operation",
-        type: "options",
-        required: true,
-        default: "concatenateItems",
-        description: "Operation to perform",
-        options: [
-          { name: "Concatenate Items", value: "concatenateItems", description: "Combine items into a single list" },
-          { name: "Limit", value: "limit", description: "Limit the number of items" },
-          { name: "Remove Duplicates", value: "removeDuplicates", description: "Remove duplicate items" },
-          { name: "Sort", value: "sort", description: "Sort items" },
-          { name: "Split Out Items", value: "splitOutItems", description: "Split items into separate outputs" },
-          { name: "Summarize", value: "summarize", description: "Summarize/aggregate items" },
-        ],
-      },
-      {
-        name: "maxItems",
-        type: "number",
-        required: false,
-        default: 10,
-        description: "Maximum number of items",
-        displayOptions: { show: { operation: ["limit"] } },
-      },
-      {
-        name: "compare",
-        type: "options",
-        required: false,
-        default: "allFields",
-        description: "How to compare items for deduplication",
-        options: [
-          { name: "All Fields", value: "allFields" },
-          { name: "Selected Fields", value: "selectedFields" },
-        ],
-        displayOptions: { show: { operation: ["removeDuplicates"] } },
-      },
-    ],
-    examples: [
-      {
-        name: "Limit Items",
-        description: "Keep only the first 5 items",
-        parameters: {
-          operation: "limit",
-          maxItems: 5,
-        },
-      },
-    ],
-    documentationUrl: "https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.itemlists/",
-  },
-
   "n8n-nodes-base.n8n": {
     type: "n8n-nodes-base.n8n",
     displayName: "n8n",
@@ -1769,5 +1475,141 @@ return items;`,
       },
     ],
     documentationUrl: "https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.n8n/",
+  },
+
+  "n8n-nodes-base.aiTransform": {
+    type: "n8n-nodes-base.aiTransform",
+    displayName: "AI Transform",
+    description: "Transform data using natural language instructions powered by AI",
+    category: "core",
+    typeVersion: 1,
+    inputs: ["main"],
+    outputs: ["main"],
+    parameters: [
+      {
+        name: "instructions",
+        type: "string",
+        required: true,
+        description: "Natural language instructions describing how to transform the data",
+        placeholder: "Extract all email addresses and format as a list",
+      },
+    ],
+    examples: [
+      {
+        name: "Extract Emails",
+        description: "Use AI to extract email addresses from text",
+        parameters: {
+          instructions: "Extract all email addresses from the input text and return them as an array",
+        },
+      },
+    ],
+    documentationUrl: "https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.aitransform/",
+  },
+
+  "n8n-nodes-base.dataTable": {
+    type: "n8n-nodes-base.dataTable",
+    displayName: "Data Table",
+    description: "Display and manipulate data in a table format within the workflow editor",
+    category: "core",
+    typeVersion: 1,
+    inputs: ["main"],
+    outputs: ["main"],
+    parameters: [
+      {
+        name: "operation",
+        type: "options",
+        required: true,
+        default: "read",
+        description: "Operation to perform",
+        options: [
+          { name: "Read", value: "read", description: "Read data from the table" },
+          { name: "Write", value: "write", description: "Write data to the table" },
+        ],
+      },
+    ],
+    examples: [
+      {
+        name: "Read Table Data",
+        description: "Read all rows from the data table",
+        parameters: {
+          operation: "read",
+        },
+      },
+    ],
+    documentationUrl: "https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.datatable/",
+  },
+
+  "n8n-nodes-base.evaluation": {
+    type: "n8n-nodes-base.evaluation",
+    displayName: "Evaluation",
+    description: "Evaluate AI model outputs against expected results for testing and benchmarking",
+    category: "core",
+    typeVersion: 1,
+    inputs: ["main"],
+    outputs: ["main"],
+    parameters: [
+      {
+        name: "evaluationType",
+        type: "options",
+        required: true,
+        default: "comparison",
+        description: "Type of evaluation to perform",
+        options: [
+          { name: "Comparison", value: "comparison", description: "Compare actual vs expected output" },
+          { name: "Score", value: "score", description: "Score output quality" },
+        ],
+      },
+    ],
+    examples: [
+      {
+        name: "Compare Outputs",
+        description: "Evaluate AI output against expected result",
+        parameters: {
+          evaluationType: "comparison",
+        },
+      },
+    ],
+    documentationUrl: "https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.evaluation/",
+  },
+
+  "n8n-nodes-base.guardrails": {
+    type: "n8n-nodes-base.guardrails",
+    displayName: "Guardrails",
+    description: "Apply input/output guardrails to AI model interactions for safety and compliance",
+    category: "core",
+    typeVersion: 1,
+    inputs: ["main"],
+    outputs: ["main"],
+    parameters: [
+      {
+        name: "guardrailType",
+        type: "options",
+        required: true,
+        default: "input",
+        description: "Type of guardrail to apply",
+        options: [
+          { name: "Input Filter", value: "input", description: "Filter input before sending to AI" },
+          { name: "Output Filter", value: "output", description: "Filter AI output before returning" },
+          { name: "Both", value: "both", description: "Apply filters to both input and output" },
+        ],
+      },
+      {
+        name: "rules",
+        type: "json",
+        required: true,
+        description: "Guardrail rules to apply as JSON",
+      },
+    ],
+    examples: [
+      {
+        name: "Filter PII",
+        description: "Remove personally identifiable information from AI output",
+        parameters: {
+          guardrailType: "output",
+          rules: "{ \"removePII\": true }",
+        },
+      },
+    ],
+    documentationUrl: "https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.guardrails/",
   },
 };

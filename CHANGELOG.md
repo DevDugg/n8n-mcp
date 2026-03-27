@@ -2,6 +2,52 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.5.0] - 2026-03-27
+
+### Updated
+- Node catalogue updated to match n8n v2.14.0 (nodes-base)
+- HTTP Request node: 4.2 → 4.4
+- Google Sheets node: 4 → 4.7
+- Postgres node: 2 → 2.6
+- MySQL node: 2 → 2.5
+- Slack node: 2 → 2.4
+- Gmail node: 2 → 2.2
+- HubSpot node: 2 → 2.2
+- Switch node: 3.2 → 3.4
+- Merge node: 3 → 3.2
+- If node: 2.2 → 2.3
+- Filter node: 2.2 → 2.3
+- Form Trigger node: 2 → 2.5
+- Respond to Webhook node: 1.1 → 1.5
+- Webhook node: 2 → 2.1
+- Schedule Trigger node: 1.2 → 1.3
+- Crypto node: 1 → 2
+- Execute Workflow node: 1 → 1.3
+- HTML node: 1 → 1.2
+- Notion node: 2 → 2.2
+- Todoist node: 2 → 2.2
+- Airtable node: 2 → 2.2
+- Microsoft Excel node: 2 → 2.2
+- Google Calendar node: 1 → 1.3
+- MongoDB node: 1 → 1.2
+- Telegram node: 1 → 1.2
+- Linear node: 1 → 1.1
+- GitHub node: 1 → 1.1
+- Google BigQuery node: 2 → 2.1
+- OpenAI node: 1 → 1.1
+
+### Added
+- AI Transform node — transform data using natural language instructions
+- Data Table node — display and manipulate data in table format
+- Evaluation node — evaluate AI model outputs for testing and benchmarking
+- Guardrails node — apply input/output guardrails for AI safety
+- Evaluation Trigger — trigger evaluation runs
+- MCP Server Trigger — expose workflows as MCP tools for AI agents
+
+### Fixed
+- Removed duplicate node entries (SSH, FTP, Email Send, Item Lists) between core.ts and integration files
+- Resolved typeVersion inconsistencies for nodes appearing in multiple catalogue files
+
 ## [1.4.0] - 2026-03-13
 
 ### Added
