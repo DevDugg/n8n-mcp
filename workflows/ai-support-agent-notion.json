@@ -1,0 +1,2104 @@
+{
+  "name": "AI Support Agent",
+  "nodes": [
+    {
+      "id": "db0b2fb4-5572-415d-9735-951846d7c744",
+      "name": "Support Intake Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "support-intake",
+        "responseMode": "lastNode",
+        "responseData": "firstEntryJson"
+      }
+    },
+    {
+      "id": "11fa4b17-5da7-47af-8439-53758d6d53ef",
+      "name": "Normalize Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        300,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const item = $input.first().json;\nconst source = item.source || 'webhook';\nconst customer_id = item.email || item.customer_id || item.user_id || 'unknown';\nconst customer_name = item.name || item.customer_name || customer_id;\nconst message = item.message || item.text || item.body || '';\nconst subject = item.subject || '';\nconst timestamp = new Date().toISOString();\nconst thread_id = item.thread_id || item.threadId || '';\nconst is_reply = !!(item.is_reply || item.in_reply_to || thread_id);\n\nreturn [{\n  json: { source, customer_id, customer_name, message, subject, timestamp, thread_id, is_reply }\n}];"
+      }
+    },
+    {
+      "id": "92a9370c-eb29-4beb-afcf-db511c078c92",
+      "name": "Read Knowledge Base",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [
+        600,
+        300
+      ],
+      "parameters": {
+        "resource": "databasePage",
+        "operation": "getAll",
+        "databaseId": "PLACEHOLDER_KB_DB_ID",
+        "returnAll": true,
+        "simple": true
+      }
+    },
+    {
+      "id": "52583955-225f-408d-848d-66927719af84",
+      "name": "Read Agent Config",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [
+        900,
+        300
+      ],
+      "parameters": {
+        "resource": "databasePage",
+        "operation": "getAll",
+        "databaseId": "PLACEHOLDER_CONFIG_DB_ID",
+        "returnAll": true,
+        "simple": true
+      }
+    },
+    {
+      "id": "a3e60bc5-db62-400c-a4e1-a55676ca57e5",
+      "name": "Format Context for Claude",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const message = $('Normalize Message').first().json;\nconst kbEntries = $('Read Knowledge Base').all().map(i => i.json);\nconst configEntries = $('Read Agent Config').all().map(i => i.json);\n\nconst config = {};\nfor (const entry of configEntries) { config[entry.Setting] = entry.Value; }\n\nconst kbFormatted = kbEntries.map((entry, i) => {\n  const id = entry.ID || (i + 1);\n  return `[KB #${id}] Category: ${entry.Category}\\nQuestion Patterns: ${entry['Question Pattern']}\\nApproved Answer: ${entry['Approved Answer']}\\nConfidence Override: ${entry['Confidence Threshold Override'] || 'default'}`;\n}).join('\\n\\n');\n\nconst threshold = parseInt(config.confidence_threshold || '80');\n\n// Thread history for follow-up messages\nlet threadContext = '';\nif (message.is_reply && message.thread_id) {\n  try {\n    const logEntries = $('Read Thread History').all().map(i => i.json);\n    const history = logEntries\n      .filter(e => e['Thread ID'] === message.thread_id)\n      .sort((a, b) => new Date(a.Timestamp) - new Date(b.Timestamp))\n      .map(e => '[' + e.Timestamp + '] ' + (e['Action Taken'] || 'Customer') + ': ' + (e['Original Message'] || e['Response Sent'] || '').substring(0, 200))\n      .join('\\n');\n    if (history) threadContext = '\\n\\nCONVERSATION HISTORY (this is a follow-up):\\n' + history;\n  } catch (e) { /* no thread history */ }\n}\n\nconst systemPrompt = `You are a customer support AI agent for ${config.business_name || '[Your Business Name]'}.`\n  + '\\n\\nYour task: analyze the incoming customer message and determine the best response.'\n  + `\\n\\nBUSINESS VOICE: ${config.business_voice || 'Professional but friendly. Use first names. Keep responses under 150 words.'}`\n  + `\\n\\nKNOWLEDGE BASE:\\n${kbFormatted || '(No entries yet)'}`\n  + `\\n\\nESCALATION KEYWORDS: ${config.escalation_keywords || 'urgent, refund, cancel, legal, lawyer, angry, furious, complaint, escalate'}`\n  + `\\n\\nCONFIDENCE THRESHOLD: ${threshold}`\n  + '\\n\\nINSTRUCTIONS:'\n  + '\\n1. Check for ESCALATION KEYWORDS first. If found, set action to \"escalate\".'\n  + '\\n2. Search the knowledge base semantically.'\n  + '\\n3. Rate confidence 0-100.'\n  + `\\n4. Determine action: confidence >= ${threshold} = \"auto_respond\", below = \"needs_approval\", keywords = \"escalate\".`\n  + '\\n5. Generate a natural, personalized response.'\n  + '\\n6. Return ONLY valid JSON:'\n  + '\\n{'\n  + '\\n  \"classification\": \"[category or Unknown]\",'\n  + '\\n  \"confidence\": [0-100],'\n  + '\\n  \"action\": \"auto_respond\" | \"needs_approval\" | \"escalate\",'\n  + '\\n  \"matched_kb_id\": [KB ID or null],'\n  + '\\n  \"response\": \"[response text]\",'\n  + '\\n  \"reasoning\": \"[one sentence]\",'\n  + '\\n  \"detected_intent\": \"[what customer wants]\",'\n  + '\\n  \"sentiment\": \"positive\" | \"neutral\" | \"frustrated\" | \"angry\"'\n  + '\\n}'\n  + threadContext;\n\nconst userMessage = `From: ${message.customer_name} (${message.customer_id})\\nSubject: ${message.subject || '(none)'}\\nMessage: ${message.message}`;\n\nreturn [{ json: { systemPrompt, userMessage, confidence_threshold: threshold, config, original_message: message } }];"
+      }
+    },
+    {
+      "id": "d3309459-ddd0-4250-be9c-623af975c456",
+      "name": "Claude Classification",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1500,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "PLACEHOLDER_ANTHROPIC_API_KEY"
+            },
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 1024, system: $json.systemPrompt, messages: [{ role: 'user', content: $json.userMessage }] }) }}"
+      }
+    },
+    {
+      "id": "926d7e8b-150e-49e9-b405-56a82894219c",
+      "name": "Parse Claude Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1800,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const response = $input.first().json;\nconst context = $('Format Context for Claude').first().json;\nconst originalMessage = context.original_message;\nconst threshold = context.confidence_threshold || 80;\n\nlet parsed;\ntry {\n  const text = response.content[0].text;\n  const jsonMatch = text.match(/\\{[\\s\\S]*\\}/);\n  parsed = JSON.parse(jsonMatch ? jsonMatch[0] : text);\n} catch (e) {\n  parsed = {\n    classification: 'Unknown', confidence: 0, action: 'needs_approval',\n    matched_kb_id: null, response: \"I apologize, but I wasn't able to process your request. A team member will assist you shortly.\",\n    reasoning: 'Failed to parse AI response: ' + e.message, detected_intent: 'unknown', sentiment: 'neutral'\n  };\n}\n\nif (parsed.action === 'auto_respond' && parsed.confidence < threshold) {\n  parsed.action = 'needs_approval';\n  parsed.reasoning += ' (confidence below threshold, routing to human)';\n}\n\nreturn [{\n  json: {\n    ...parsed,\n    source: originalMessage.source, customer_id: originalMessage.customer_id,\n    customer_name: originalMessage.customer_name, message: originalMessage.message,\n    subject: originalMessage.subject, timestamp: originalMessage.timestamp,\n    thread_id: originalMessage.thread_id, is_reply: originalMessage.is_reply,\n    config: context.config\n  }\n}];"
+      }
+    },
+    {
+      "id": "e842cb1e-b541-4559-a6a8-a9889ae04e08",
+      "name": "Confidence Router",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        2100,
+        300
+      ],
+      "parameters": {
+        "mode": "rules",
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "auto_respond",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Auto-Respond"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "needs_approval",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Needs Approval"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "escalate",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Escalate"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      }
+    },
+    {
+      "id": "7919e2ea-f8b0-4081-858e-34bb087e4c2e",
+      "name": "Format Auto-Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2400,
+        100
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const data = $input.first().json;\nconst signature = (data.config && data.config.welcome_signature) || 'Best regards, Support Team';\nconst formattedResponse = data.response + '\\n\\n' + signature;\n\nreturn [{\n  json: {\n    Timestamp: data.timestamp, 'Source Channel': data.source,\n    'Customer Identifier': data.customer_id,\n    'Original Message': (data.message || '').substring(0, 500),\n    'AI Classification': data.classification, 'Confidence Score': data.confidence,\n    'Action Taken': 'Auto-responded',\n    'Response Sent': formattedResponse,\n    'Response Source': 'Auto (KB #' + (data.matched_kb_id || 'AI') + ')',\n    'Thread ID': data.thread_id || '', 'Resolution Status': 'Resolved',\n    'Time to Response': Math.floor((Date.now() - new Date(data.timestamp).getTime()) / 1000),\n    formatted_response: formattedResponse, matched_kb_id: data.matched_kb_id,\n    customer_name: data.customer_name, source: data.source,\n    sentiment: data.sentiment, detected_intent: data.detected_intent, reasoning: data.reasoning\n  }\n}];"
+      }
+    },
+    {
+      "id": "89921012-3703-4e73-b89e-44cc45ce4869",
+      "name": "Log to Conversation Log",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [
+        3000,
+        100
+      ],
+      "parameters": {
+        "resource": "databasePage",
+        "operation": "create",
+        "databaseId": "PLACEHOLDER_LOG_DB_ID",
+        "simple": true,
+        "propertiesUi": {
+          "propertyValues": [
+            {
+              "key": "Customer Identifier|title",
+              "title": "={{ $json[\"Customer Identifier\"] }}"
+            },
+            {
+              "key": "Timestamp|rich_text",
+              "textContent": "={{ $json[\"Timestamp\"] }}"
+            },
+            {
+              "key": "Source Channel|rich_text",
+              "textContent": "={{ $json[\"Source Channel\"] }}"
+            },
+            {
+              "key": "Original Message|rich_text",
+              "textContent": "={{ $json[\"Original Message\"] }}"
+            },
+            {
+              "key": "AI Classification|rich_text",
+              "textContent": "={{ $json[\"AI Classification\"] }}"
+            },
+            {
+              "key": "Confidence Score|number",
+              "numberValue": "={{ $json[\"Confidence Score\"] }}"
+            },
+            {
+              "key": "Action Taken|rich_text",
+              "textContent": "={{ $json[\"Action Taken\"] }}"
+            },
+            {
+              "key": "Response Sent|rich_text",
+              "textContent": "={{ $json[\"Response Sent\"] }}"
+            },
+            {
+              "key": "Response Source|rich_text",
+              "textContent": "={{ $json[\"Response Source\"] }}"
+            },
+            {
+              "key": "Thread ID|rich_text",
+              "textContent": "={{ $json[\"Thread ID\"] }}"
+            },
+            {
+              "key": "Resolution Status|rich_text",
+              "textContent": "={{ $json[\"Resolution Status\"] }}"
+            },
+            {
+              "key": "Time to Response|number",
+              "numberValue": "={{ $json[\"Time to Response\"] }}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "7efd7744-37da-40ec-8b60-b44a478d8016",
+      "name": "Update KB Usage Stats",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [
+        3300,
+        100
+      ],
+      "parameters": {
+        "resource": "databasePage",
+        "operation": "update",
+        "pageId": "={{ $json.id }}",
+        "simple": true,
+        "propertiesUi": {
+          "propertyValues": [
+            {
+              "key": "Times Used|number",
+              "numberValue": "={{ $json[\"Times Used\"] }}"
+            },
+            {
+              "key": "Last Used|rich_text",
+              "textContent": "={{ $json[\"Last Used\"] }}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cfe648bc-4a2a-462e-ab3d-679135ab4eda",
+      "name": "Prepare Pending Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2400,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const data = $input.first().json;\nconst pendingId = 'PND-' + Date.now();\n\nreturn [{\n  json: {\n    // Pending Approvals sheet columns\n    ID: pendingId,\n    Timestamp: data.timestamp,\n    'Customer Identifier': data.customer_id,\n    'Original Message': (data.message || '').substring(0, 500),\n    'AI Draft Response': data.response,\n    'Matched KB Entry': data.matched_kb_id ? 'KB #' + data.matched_kb_id : 'No match - AI generated from context',\n    'Confidence Score': data.confidence,\n    Status: 'Pending',\n    'Approved By': '',\n    'Final Response': '',\n    'Add to KB?': '',\n    'New KB Category': '',\n    // Pass-through for downstream nodes\n    _classification: data.classification,\n    _customer_name: data.customer_name,\n    _customer_id: data.customer_id,\n    _source: data.source,\n    _subject: data.subject,\n    _thread_id: data.thread_id,\n    _sentiment: data.sentiment,\n    _detected_intent: data.detected_intent,\n    _reasoning: data.reasoning,\n    _message: data.message,\n    _response: data.response,\n    _confidence: data.confidence,\n    _pending_id: pendingId\n  }\n}];"
+      }
+    },
+    {
+      "id": "7445c740-2945-409f-bd12-19a5f71f47f5",
+      "name": "Write Pending Approval",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [
+        2700,
+        300
+      ],
+      "parameters": {
+        "resource": "databasePage",
+        "operation": "create",
+        "databaseId": "PLACEHOLDER_PENDING_DB_ID",
+        "simple": true,
+        "propertiesUi": {
+          "propertyValues": [
+            {
+              "key": "ID|title",
+              "title": "={{ $json[\"ID\"] }}"
+            },
+            {
+              "key": "Timestamp|rich_text",
+              "textContent": "={{ $json[\"Timestamp\"] }}"
+            },
+            {
+              "key": "Customer Identifier|rich_text",
+              "textContent": "={{ $json[\"Customer Identifier\"] }}"
+            },
+            {
+              "key": "Original Message|rich_text",
+              "textContent": "={{ $json[\"Original Message\"] }}"
+            },
+            {
+              "key": "AI Draft Response|rich_text",
+              "textContent": "={{ $json[\"AI Draft Response\"] }}"
+            },
+            {
+              "key": "Matched KB Entry|rich_text",
+              "textContent": "={{ $json[\"Matched KB Entry\"] }}"
+            },
+            {
+              "key": "Confidence Score|number",
+              "numberValue": "={{ $json[\"Confidence Score\"] }}"
+            },
+            {
+              "key": "Status|rich_text",
+              "textContent": "={{ $json[\"Status\"] }}"
+            },
+            {
+              "key": "Approved By|rich_text",
+              "textContent": "={{ $json[\"Approved By\"] }}"
+            },
+            {
+              "key": "Final Response|rich_text",
+              "textContent": "={{ $json[\"Final Response\"] }}"
+            },
+            {
+              "key": "Add to KB?|rich_text",
+              "textContent": "={{ $json[\"Add to KB?\"] }}"
+            },
+            {
+              "key": "New KB Category|rich_text",
+              "textContent": "={{ $json[\"New KB Category\"] }}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "6af8f17c-fec7-421d-992a-7dfa56003844",
+      "name": "Read Team Directory",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [
+        3000,
+        300
+      ],
+      "parameters": {
+        "resource": "databasePage",
+        "operation": "getAll",
+        "databaseId": "PLACEHOLDER_TEAM_DB_ID",
+        "returnAll": true,
+        "simple": true
+      }
+    },
+    {
+      "id": "a4adcf37-1002-4271-8ca7-e94e2533dbb9",
+      "name": "Route to Reviewer",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3300,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const pendingData = $('Prepare Pending Data').first().json;\nconst teamMembers = $('Read Team Directory').all().map(i => i.json);\nconst classification = pendingData._classification || 'Unknown';\n\n// Find reviewer by category ownership\nlet reviewer = teamMembers.find(member => {\n  if (String(member.Status).toLowerCase() === 'away') return false;\n  const categories = (member['Owns Categories'] || '').split(',').map(c => c.trim().toLowerCase());\n  return categories.includes(classification.toLowerCase());\n});\n\n// Fallback: default handler\nif (!reviewer) {\n  reviewer = teamMembers.find(m =>\n    String(m['Is Default']).toLowerCase() === 'yes' &&\n    String(m.Status).toLowerCase() !== 'away'\n  );\n}\n\n// Final fallback: first active member\nif (!reviewer) {\n  reviewer = teamMembers.find(m => String(m.Status).toLowerCase() !== 'away')\n    || teamMembers[0]\n    || { Name: 'Support Team', Email: '', 'Slack ID': '' };\n}\n\nconst msg = pendingData;\nconst notificationText = `*New Support Message Needs Review*\\n\\n` +\n  `*From:* ${msg._customer_name} (${msg._customer_id})\\n` +\n  `*Category:* ${msg._classification} | *Confidence:* ${msg._confidence}% | *Sentiment:* ${msg._sentiment}\\n\\n` +\n  `*Customer Message:*\\n> ${msg['Original Message']}\\n\\n` +\n  `*AI Draft Response:*\\n> ${msg['AI Draft Response']}\\n\\n` +\n  `*Reasoning:* ${msg._reasoning}\\n\\n` +\n  `---\\n` +\n  `*To approve:* Update Status to \\\"Approved\\\" in Pending Approvals sheet (row: ${msg._pending_id})\\n` +\n  `*To edit:* Write your response in \\\"Final Response\\\" column, then set Status to \\\"Approved\\\"\\n` +\n  `*To reject:* Set Status to \\\"Rejected\\\"\\n` +\n  `*To add to KB:* Set \\\"Add to KB?\\\" to \\\"Yes\\\" and fill \\\"New KB Category\\\"\\n\\n` +\n  `Or POST to the approval webhook:\\n` +\n  `\\`/webhook/support-approval\\` with \\`{\"action\":\"approve\",\"pending_id\":\"${msg._pending_id}\",\"approver\":\"${reviewer.Name}\"}\\``;\n\nreturn [{\n  json: {\n    reviewer_name: reviewer.Name,\n    reviewer_email: reviewer.Email || '',\n    reviewer_slack_id: reviewer['Slack ID'] || '',\n    notification_text: notificationText,\n    // Pass-through for logging\n    _pending_id: msg._pending_id,\n    _customer_id: msg._customer_id,\n    _customer_name: msg._customer_name,\n    _source: msg._source,\n    _classification: msg._classification,\n    _confidence: msg._confidence,\n    _message: msg._message,\n    _timestamp: msg.Timestamp,\n    _thread_id: msg._thread_id\n  }\n}];"
+      }
+    },
+    {
+      "id": "64018a4e-4fd9-4302-a24c-812df36130e4",
+      "name": "Send Review Notification",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2,
+      "position": [
+        3600,
+        300
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "channel": "={{ $json.reviewer_slack_id }}",
+        "text": "={{ $json.notification_text }}"
+      }
+    },
+    {
+      "id": "929e22c0-f6cc-485f-8c7e-91a484b70d19",
+      "name": "Log Pending to Conversation Log",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3900,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const data = $('Route to Reviewer').first().json;\n\nreturn [{\n  json: {\n    Timestamp: data._timestamp,\n    'Source Channel': data._source,\n    'Customer Identifier': data._customer_id,\n    'Original Message': (data._message || '').substring(0, 500),\n    'AI Classification': data._classification,\n    'Confidence Score': data._confidence,\n    'Action Taken': 'Sent to ' + data.reviewer_name + ' for approval',\n    'Response Sent': '',\n    'Response Source': 'Pending approval',\n    'Thread ID': data._thread_id || '',\n    'Resolution Status': 'Open',\n    'Time to Response': 0\n  }\n}];"
+      }
+    },
+    {
+      "id": "b04dfba1-ef0c-4bfe-8065-a2875b3a7f23",
+      "name": "Write Pending Log Entry",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [
+        4200,
+        300
+      ],
+      "parameters": {
+        "resource": "databasePage",
+        "operation": "create",
+        "databaseId": "PLACEHOLDER_LOG_DB_ID",
+        "simple": true,
+        "propertiesUi": {
+          "propertyValues": [
+            {
+              "key": "Customer Identifier|title",
+              "title": "={{ $json[\"Customer Identifier\"] }}"
+            },
+            {
+              "key": "Timestamp|rich_text",
+              "textContent": "={{ $json[\"Timestamp\"] }}"
+            },
+            {
+              "key": "Source Channel|rich_text",
+              "textContent": "={{ $json[\"Source Channel\"] }}"
+            },
+            {
+              "key": "Original Message|rich_text",
+              "textContent": "={{ $json[\"Original Message\"] }}"
+            },
+            {
+              "key": "AI Classification|rich_text",
+              "textContent": "={{ $json[\"AI Classification\"] }}"
+            },
+            {
+              "key": "Confidence Score|number",
+              "numberValue": "={{ $json[\"Confidence Score\"] }}"
+            },
+            {
+              "key": "Action Taken|rich_text",
+              "textContent": "={{ $json[\"Action Taken\"] }}"
+            },
+            {
+              "key": "Response Sent|rich_text",
+              "textContent": "={{ $json[\"Response Sent\"] }}"
+            },
+            {
+              "key": "Response Source|rich_text",
+              "textContent": "={{ $json[\"Response Source\"] }}"
+            },
+            {
+              "key": "Thread ID|rich_text",
+              "textContent": "={{ $json[\"Thread ID\"] }}"
+            },
+            {
+              "key": "Resolution Status|rich_text",
+              "textContent": "={{ $json[\"Resolution Status\"] }}"
+            },
+            {
+              "key": "Time to Response|number",
+              "numberValue": "={{ $json[\"Time to Response\"] }}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "efa6f079-b081-4ddb-9c17-88f77eceb30f",
+      "name": "Approval Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        2400,
+        800
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "support-approval",
+        "responseMode": "lastNode",
+        "responseData": "firstEntryJson"
+      }
+    },
+    {
+      "id": "1db2bb7a-b4ac-4470-a132-3094e3b0793e",
+      "name": "Read Pending Approvals",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [
+        2700,
+        800
+      ],
+      "parameters": {
+        "resource": "databasePage",
+        "operation": "getAll",
+        "databaseId": "PLACEHOLDER_PENDING_DB_ID",
+        "returnAll": true,
+        "simple": true
+      }
+    },
+    {
+      "id": "46a07264-14b3-4521-8649-4ae504913603",
+      "name": "Process Approval",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3000,
+        800
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const webhook = $('Approval Webhook').first().json;\nconst pendingRows = $('Read Pending Approvals').all().map(i => i.json);\n\n// Find the matching pending approval\nconst pendingId = webhook.pending_id || '';\nlet pending = pendingRows.find(r => r.ID === pendingId);\n\nif (!pending) {\n  // Try matching by customer identifier + timestamp\n  pending = pendingRows.find(r =>\n    r.Status === 'Pending' &&\n    (!pendingId || r.ID === pendingId)\n  );\n}\n\nif (!pending) {\n  return [{ json: { error: 'Pending approval not found', pending_id: pendingId, status: 'error' } }];\n}\n\nconst action = (webhook.action || 'approve').toLowerCase();\nconst approver = webhook.approver || 'Unknown';\nconst editedResponse = webhook.edited_response || '';\nconst addToKb = webhook.add_to_kb || 'No';\nconst newKbCategory = webhook.new_kb_category || pending['AI Classification'] || '';\n\nlet finalResponse = editedResponse || pending['AI Draft Response'] || '';\nlet status, responseSource;\n\nif (action === 'approve') {\n  status = 'Approved';\n  responseSource = editedResponse ? 'Human-written' : 'Human-approved draft';\n} else if (action === 'edit') {\n  status = 'Approved';\n  responseSource = 'Human-written';\n  finalResponse = editedResponse;\n} else if (action === 'reject') {\n  status = 'Rejected';\n  responseSource = 'Rejected';\n  finalResponse = '';\n} else {\n  status = 'Approved';\n  responseSource = 'Human-approved draft';\n}\n\nreturn [{\n  json: {\n    // For updating Pending Approvals sheet\n    ID: pending.ID,\n    Status: status,\n    'Approved By': approver,\n    'Final Response': finalResponse,\n    'Add to KB?': addToKb,\n    'New KB Category': newKbCategory,\n    // For downstream: Conversation Log\n    Timestamp: new Date().toISOString(),\n    'Source Channel': pending['Source Channel'] || 'webhook',\n    'Customer Identifier': pending['Customer Identifier'],\n    'Original Message': pending['Original Message'],\n    'AI Classification': pending['AI Classification'] || '',\n    'Confidence Score': pending['Confidence Score'] || 0,\n    'Action Taken': action === 'reject' ? 'Rejected by ' + approver : 'Approved by ' + approver,\n    'Response Sent': finalResponse,\n    'Response Source': responseSource,\n    'Thread ID': '',\n    'Resolution Status': action === 'reject' ? 'Rejected' : 'Resolved',\n    'Time to Response': 0,\n    // Control flags\n    _action: action,\n    _add_to_kb: addToKb,\n    _new_kb_category: newKbCategory,\n    _customer_name: pending['Customer Identifier'],\n    _original_message: pending['Original Message'],\n    _final_response: finalResponse,\n    _approver: approver\n  }\n}];"
+      }
+    },
+    {
+      "id": "09282542-dccd-4ce7-a34b-8c94312bd809",
+      "name": "Update Pending Status",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [
+        3300,
+        800
+      ],
+      "parameters": {
+        "resource": "databasePage",
+        "operation": "update",
+        "pageId": "={{ $json.id }}",
+        "simple": true,
+        "propertiesUi": {
+          "propertyValues": [
+            {
+              "key": "ID|title",
+              "title": "={{ $json[\"ID\"] }}"
+            },
+            {
+              "key": "Status|rich_text",
+              "textContent": "={{ $json[\"Status\"] }}"
+            },
+            {
+              "key": "Approved By|rich_text",
+              "textContent": "={{ $json[\"Approved By\"] }}"
+            },
+            {
+              "key": "Final Response|rich_text",
+              "textContent": "={{ $json[\"Final Response\"] }}"
+            },
+            {
+              "key": "Add to KB?|rich_text",
+              "textContent": "={{ $json[\"Add to KB?\"] }}"
+            },
+            {
+              "key": "New KB Category|rich_text",
+              "textContent": "={{ $json[\"New KB Category\"] }}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "4806e182-e486-4f97-a3f5-738a8f8d36d3",
+      "name": "Approval Action Router",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        3600,
+        800
+      ],
+      "parameters": {
+        "mode": "rules",
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json._action }}",
+                    "rightValue": "approve",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "or"
+              },
+              "renameOutput": true,
+              "outputKey": "Approve/Edit"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json._action }}",
+                    "rightValue": "edit",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Edit"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json._action }}",
+                    "rightValue": "reject",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Reject"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      }
+    },
+    {
+      "id": "fc0fd707-9cf1-4a46-8213-af7db1c565b9",
+      "name": "Log Approved Response",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [
+        3900,
+        700
+      ],
+      "parameters": {
+        "resource": "databasePage",
+        "operation": "create",
+        "databaseId": "PLACEHOLDER_LOG_DB_ID",
+        "simple": true,
+        "propertiesUi": {
+          "propertyValues": [
+            {
+              "key": "Customer Identifier|title",
+              "title": "={{ $json[\"Customer Identifier\"] }}"
+            },
+            {
+              "key": "Timestamp|rich_text",
+              "textContent": "={{ $json[\"Timestamp\"] }}"
+            },
+            {
+              "key": "Source Channel|rich_text",
+              "textContent": "={{ $json[\"Source Channel\"] }}"
+            },
+            {
+              "key": "Original Message|rich_text",
+              "textContent": "={{ $json[\"Original Message\"] }}"
+            },
+            {
+              "key": "AI Classification|rich_text",
+              "textContent": "={{ $json[\"AI Classification\"] }}"
+            },
+            {
+              "key": "Confidence Score|number",
+              "numberValue": "={{ $json[\"Confidence Score\"] }}"
+            },
+            {
+              "key": "Action Taken|rich_text",
+              "textContent": "={{ $json[\"Action Taken\"] }}"
+            },
+            {
+              "key": "Response Sent|rich_text",
+              "textContent": "={{ $json[\"Response Sent\"] }}"
+            },
+            {
+              "key": "Response Source|rich_text",
+              "textContent": "={{ $json[\"Response Source\"] }}"
+            },
+            {
+              "key": "Thread ID|rich_text",
+              "textContent": "={{ $json[\"Thread ID\"] }}"
+            },
+            {
+              "key": "Resolution Status|rich_text",
+              "textContent": "={{ $json[\"Resolution Status\"] }}"
+            },
+            {
+              "key": "Time to Response|number",
+              "numberValue": "={{ $json[\"Time to Response\"] }}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "6a34d70f-099e-4460-9067-8fb7cd0e07c8",
+      "name": "Log Rejected",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [
+        3900,
+        900
+      ],
+      "parameters": {
+        "resource": "databasePage",
+        "operation": "create",
+        "databaseId": "PLACEHOLDER_LOG_DB_ID",
+        "simple": true,
+        "propertiesUi": {
+          "propertyValues": [
+            {
+              "key": "Customer Identifier|title",
+              "title": "={{ $json[\"Customer Identifier\"] }}"
+            },
+            {
+              "key": "Timestamp|rich_text",
+              "textContent": "={{ $json[\"Timestamp\"] }}"
+            },
+            {
+              "key": "Source Channel|rich_text",
+              "textContent": "={{ $json[\"Source Channel\"] }}"
+            },
+            {
+              "key": "Original Message|rich_text",
+              "textContent": "={{ $json[\"Original Message\"] }}"
+            },
+            {
+              "key": "AI Classification|rich_text",
+              "textContent": "={{ $json[\"AI Classification\"] }}"
+            },
+            {
+              "key": "Confidence Score|number",
+              "numberValue": "={{ $json[\"Confidence Score\"] }}"
+            },
+            {
+              "key": "Action Taken|rich_text",
+              "textContent": "={{ $json[\"Action Taken\"] }}"
+            },
+            {
+              "key": "Response Sent|rich_text",
+              "textContent": "={{ $json[\"Response Sent\"] }}"
+            },
+            {
+              "key": "Response Source|rich_text",
+              "textContent": "={{ $json[\"Response Source\"] }}"
+            },
+            {
+              "key": "Thread ID|rich_text",
+              "textContent": "={{ $json[\"Thread ID\"] }}"
+            },
+            {
+              "key": "Resolution Status|rich_text",
+              "textContent": "={{ $json[\"Resolution Status\"] }}"
+            },
+            {
+              "key": "Time to Response|number",
+              "numberValue": "={{ $json[\"Time to Response\"] }}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "282de385-a913-4fe1-946c-ea99e916a481",
+      "name": "Read Team Directory (Escalation)",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [
+        2400,
+        500
+      ],
+      "parameters": {
+        "resource": "databasePage",
+        "operation": "getAll",
+        "databaseId": "PLACEHOLDER_TEAM_DB_ID",
+        "returnAll": true,
+        "simple": true
+      }
+    },
+    {
+      "id": "fd745b91-e8aa-4bdd-a210-fbabc29b6500",
+      "name": "Route Escalation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2700,
+        500
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const data = $('Parse Claude Response').first().json;\nconst teamMembers = $('Read Team Directory (Escalation)').all().map(i => i.json);\nconst classification = data.classification || 'Unknown';\n\nlet owner = teamMembers.find(m => {\n  if (String(m.Status).toLowerCase() === 'away') return false;\n  const cats = (m['Owns Categories'] || '').split(',').map(c => c.trim().toLowerCase());\n  return cats.includes(classification.toLowerCase());\n});\nif (!owner) owner = teamMembers.find(m => String(m['Is Default']).toLowerCase() === 'yes' && String(m.Status).toLowerCase() !== 'away');\nif (!owner) owner = teamMembers.find(m => String(m.Status).toLowerCase() !== 'away') || teamMembers[0] || { Name: 'Support Team', 'Slack ID': '', Email: '' };\n\nconst alertText = '*URGENT: Support Message Requires Immediate Attention*\\n\\n' +\n  '*From:* ' + data.customer_name + ' (' + data.customer_id + ')\\n' +\n  '*Category:* ' + data.classification + ' | *Sentiment:* ' + data.sentiment + '\\n' +\n  '*Intent:* ' + data.detected_intent + '\\n\\n' +\n  '*Full Message:*\\n> ' + data.message + '\\n\\n' +\n  '*AI Reasoning:* ' + data.reasoning + '\\n\\n' +\n  '_Routed to: ' + owner.Name + '_';\n\nreturn [{ json: {\n  owner_name: owner.Name, owner_email: owner.Email || '', owner_slack_id: owner['Slack ID'] || '',\n  alert_text: alertText,\n  customer_id: data.customer_id, customer_name: data.customer_name, source: data.source,\n  message: data.message, subject: data.subject, timestamp: data.timestamp,\n  thread_id: data.thread_id, classification: data.classification, confidence: data.confidence,\n  sentiment: data.sentiment, reasoning: data.reasoning\n} }];"
+      }
+    },
+    {
+      "id": "74a7db65-3c24-49c2-b54c-fd9b4f674d64",
+      "name": "Send Escalation Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2,
+      "position": [
+        3000,
+        500
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "channel": "={{ $json.owner_slack_id }}",
+        "text": "={{ $json.alert_text }}"
+      }
+    },
+    {
+      "id": "5d4ef545-daf4-43ff-960c-d4adef2178d4",
+      "name": "Prepare Escalation Log",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3600,
+        500
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const data = $input.first().json;\nreturn [{ json: {\n  Timestamp: data.timestamp,\n  'Source Channel': data.source,\n  'Customer Identifier': data.customer_id,\n  'Original Message': (data.message || '').substring(0, 500),\n  'AI Classification': data.classification,\n  'Confidence Score': data.confidence,\n  'Action Taken': 'Escalated to ' + data.owner_name,\n  'Response Sent': \"I've flagged your message for our team and someone will get back to you shortly.\",\n  'Response Source': 'Escalation auto-ack',\n  'Thread ID': data.thread_id || '',\n  'Resolution Status': 'Escalated',\n  'Time to Response': Math.floor((Date.now() - new Date(data.timestamp).getTime()) / 1000)\n} }];"
+      }
+    },
+    {
+      "id": "89ee52d8-2e00-4f4a-a478-0eab85ad9cc6",
+      "name": "Log Escalation",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [
+        3900,
+        500
+      ],
+      "parameters": {
+        "resource": "databasePage",
+        "operation": "create",
+        "databaseId": "PLACEHOLDER_LOG_DB_ID",
+        "simple": true,
+        "propertiesUi": {
+          "propertyValues": [
+            {
+              "key": "Customer Identifier|title",
+              "title": "={{ $json[\"Customer Identifier\"] }}"
+            },
+            {
+              "key": "Timestamp|rich_text",
+              "textContent": "={{ $json[\"Timestamp\"] }}"
+            },
+            {
+              "key": "Source Channel|rich_text",
+              "textContent": "={{ $json[\"Source Channel\"] }}"
+            },
+            {
+              "key": "Original Message|rich_text",
+              "textContent": "={{ $json[\"Original Message\"] }}"
+            },
+            {
+              "key": "AI Classification|rich_text",
+              "textContent": "={{ $json[\"AI Classification\"] }}"
+            },
+            {
+              "key": "Confidence Score|number",
+              "numberValue": "={{ $json[\"Confidence Score\"] }}"
+            },
+            {
+              "key": "Action Taken|rich_text",
+              "textContent": "={{ $json[\"Action Taken\"] }}"
+            },
+            {
+              "key": "Response Sent|rich_text",
+              "textContent": "={{ $json[\"Response Sent\"] }}"
+            },
+            {
+              "key": "Response Source|rich_text",
+              "textContent": "={{ $json[\"Response Source\"] }}"
+            },
+            {
+              "key": "Thread ID|rich_text",
+              "textContent": "={{ $json[\"Thread ID\"] }}"
+            },
+            {
+              "key": "Resolution Status|rich_text",
+              "textContent": "={{ $json[\"Resolution Status\"] }}"
+            },
+            {
+              "key": "Time to Response|number",
+              "numberValue": "={{ $json[\"Time to Response\"] }}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "e718b1c8-918c-4654-ac4b-d596c44f4aca",
+      "name": "Check Add to KB",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4500,
+        700
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json._add_to_kb }}",
+              "rightValue": "Yes",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "e69c090f-bcef-4c85-8130-7a25db1d3563",
+      "name": "Create KB Entry",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4800,
+        600
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const data = $input.first().json;\nreturn [{ json: {\n  Category: data._new_kb_category || data['AI Classification'] || 'General',\n  'Question Pattern': (data._original_message || data['Original Message'] || '').substring(0, 300),\n  'Approved Answer': data._final_response || data['Final Response'] || data['Response Sent'] || '',\n  Source: 'Learned from ' + (data._approver || 'human') + ' on ' + new Date().toISOString().split('T')[0],\n  'Times Used': 0,\n  'Last Used': '',\n  'Confidence Threshold Override': ''\n} }];"
+      }
+    },
+    {
+      "id": "bcea7ea1-ff0d-4e53-947d-40fecf7c40cc",
+      "name": "Write New KB Entry",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [
+        5100,
+        600
+      ],
+      "parameters": {
+        "resource": "databasePage",
+        "operation": "create",
+        "databaseId": "PLACEHOLDER_KB_DB_ID",
+        "simple": true,
+        "propertiesUi": {
+          "propertyValues": [
+            {
+              "key": "Question Pattern|title",
+              "title": "={{ $json[\"Question Pattern\"] }}"
+            },
+            {
+              "key": "Category|rich_text",
+              "textContent": "={{ $json[\"Category\"] }}"
+            },
+            {
+              "key": "Approved Answer|rich_text",
+              "textContent": "={{ $json[\"Approved Answer\"] }}"
+            },
+            {
+              "key": "Source|rich_text",
+              "textContent": "={{ $json[\"Source\"] }}"
+            },
+            {
+              "key": "Times Used|number",
+              "numberValue": "={{ $json[\"Times Used\"] }}"
+            },
+            {
+              "key": "Last Used|rich_text",
+              "textContent": "={{ $json[\"Last Used\"] }}"
+            },
+            {
+              "key": "Confidence Threshold Override|rich_text",
+              "textContent": "={{ $json[\"Confidence Threshold Override\"] }}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "a557cca4-9ae9-4912-abbf-822e21c1ff61",
+      "name": "Read Thread History",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [
+        1050,
+        300
+      ],
+      "parameters": {
+        "resource": "databasePage",
+        "operation": "getAll",
+        "databaseId": "PLACEHOLDER_LOG_DB_ID",
+        "returnAll": true,
+        "simple": true
+      }
+    },
+    {
+      "id": "72b2540c-84c0-41fb-a087-8b2dae540298",
+      "name": "Follow-Up Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        1200
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 4
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "89fd0541-b736-451f-a1bf-d65ff3629262",
+      "name": "Read Config (Follow-Up)",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [
+        300,
+        1200
+      ],
+      "parameters": {
+        "resource": "databasePage",
+        "operation": "getAll",
+        "databaseId": "PLACEHOLDER_CONFIG_DB_ID",
+        "returnAll": true,
+        "simple": true
+      }
+    },
+    {
+      "id": "ade8b7fb-c9b0-4cb9-b3f8-7544ad7b4fc3",
+      "name": "Read Conversation Log (Follow-Up)",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [
+        600,
+        1200
+      ],
+      "parameters": {
+        "resource": "databasePage",
+        "operation": "getAll",
+        "databaseId": "PLACEHOLDER_LOG_DB_ID",
+        "returnAll": true,
+        "simple": true
+      }
+    },
+    {
+      "id": "f1a536da-8351-4619-aa8e-fb0bec29a9b5",
+      "name": "Find Stale Conversations",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        1200
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const configEntries = $('Read Config (Follow-Up)').all().map(i => i.json);\nconst logEntries = $('Read Conversation Log (Follow-Up)').all().map(i => i.json);\n\nconst config = {};\nfor (const entry of configEntries) { config[entry.Setting] = entry.Value; }\nconst followUpHours = parseInt(config.follow_up_check_hours || '4');\nconst cutoff = new Date(Date.now() - followUpHours * 60 * 60 * 1000);\nconst criticalCutoff = new Date(Date.now() - followUpHours * 2 * 60 * 60 * 1000);\n\nconst staleItems = logEntries.filter(entry => {\n  const status = (entry['Resolution Status'] || '').toLowerCase();\n  if (status !== 'open' && status !== 'escalated') return false;\n  const ts = new Date(entry.Timestamp);\n  return ts < cutoff;\n}).map(entry => {\n  const ts = new Date(entry.Timestamp);\n  const hoursWaiting = Math.round((Date.now() - ts.getTime()) / (60 * 60 * 1000));\n  const isCritical = ts < criticalCutoff;\n  return {\n    ...entry,\n    _hours_waiting: hoursWaiting,\n    _is_critical: isCritical\n  };\n});\n\nif (staleItems.length === 0) {\n  return [{ json: { _no_stale: true, message: 'No stale conversations found' } }];\n}\n\n// Build summary alert\nlet alertText = '*Stale Conversation Alert*\\n\\n';\nalertText += `Found ${staleItems.length} unresolved conversation(s):\\n\\n`;\nfor (const item of staleItems) {\n  const prefix = item._is_critical ? '🔴 CRITICAL' : '🟡 Reminder';\n  alertText += `${prefix} | ${item['Customer Identifier']} | ${item._hours_waiting}h waiting | ${item['AI Classification'] || 'Unclassified'} | Status: ${item['Resolution Status']}\\n`;\n}\n\nreturn [{ json: {\n  _no_stale: false,\n  alert_text: alertText,\n  stale_count: staleItems.length,\n  digest_channel: config.digest_slack_channel || '',\n  digest_email: config.digest_email || ''\n} }];"
+      }
+    },
+    {
+      "id": "6a7bd8ed-8ba3-479c-989e-255506102090",
+      "name": "Has Stale Items?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1200,
+        1200
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json._no_stale }}",
+              "rightValue": "false",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "b74a3b5d-a9c8-4c1b-85b4-4fcd8ecdc938",
+      "name": "Send Stale Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2,
+      "position": [
+        1500,
+        1100
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "channel": "={{ $json.digest_channel }}",
+        "text": "={{ $json.alert_text }}"
+      }
+    },
+    {
+      "id": "fac6a56b-187e-4b28-a7c2-8a87fb436a16",
+      "name": "Daily Digest Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        1600
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "92b01808-cfa2-44e0-b95e-44baebcd7d09",
+      "name": "Read Config (Digest)",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [
+        300,
+        1600
+      ],
+      "parameters": {
+        "resource": "databasePage",
+        "operation": "getAll",
+        "databaseId": "PLACEHOLDER_CONFIG_DB_ID",
+        "returnAll": true,
+        "simple": true
+      }
+    },
+    {
+      "id": "366822be-6faa-483a-9375-81cc55fbe762",
+      "name": "Read Conversation Log (Digest)",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [
+        600,
+        1600
+      ],
+      "parameters": {
+        "resource": "databasePage",
+        "operation": "getAll",
+        "databaseId": "PLACEHOLDER_LOG_DB_ID",
+        "returnAll": true,
+        "simple": true
+      }
+    },
+    {
+      "id": "b97222ea-537d-4ac4-a8f2-35e89c5ce984",
+      "name": "Prepare Digest Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        1600
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const configEntries = $('Read Config (Digest)').all().map(i => i.json);\nconst logEntries = $('Read Conversation Log (Digest)').all().map(i => i.json);\n\nconst config = {};\nfor (const entry of configEntries) { config[entry.Setting] = entry.Value; }\n\n// Filter to last 24 hours\nconst cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);\nconst recent = logEntries.filter(e => new Date(e.Timestamp) > cutoff);\n\n// Build summary data for Claude\nconst summary = recent.map(e => {\n  return `[${e.Timestamp}] ${e['Source Channel']} | ${e['Customer Identifier']} | ${e['AI Classification']} | Confidence: ${e['Confidence Score']} | Action: ${e['Action Taken']} | Status: ${e['Resolution Status']} | Response Time: ${e['Time to Response']}s`;\n}).join('\\n');\n\nconst digestPrompt = `Analyze the following 24 hours of support activity and generate a concise operations digest.\n\nDATA:\n${summary || '(No activity in the last 24 hours)'}\n\nGenerate a digest with these sections:\n1. SUMMARY: Total messages, auto-resolved count, human-handled count, escalated count, average response time\n2. TOP TOPICS: The 5 most frequent question categories today\n3. KNOWLEDGE GAPS: Questions the agent could not answer confidently. These are candidates for new KB entries.\n4. SENTIMENT OVERVIEW: Breakdown of customer sentiment\n5. STALE ITEMS: Any unresolved conversations older than 24 hours\n6. RECOMMENDATION: One specific suggestion for improving the system\n\nKeep it under 500 words. Use bullet points. Be specific with numbers.`;\n\nreturn [{ json: {\n  digestPrompt,\n  total_messages: recent.length,\n  digest_channel: config.digest_slack_channel || '',\n  digest_email: config.digest_email || '',\n  business_name: config.business_name || 'Support'\n} }];"
+      }
+    },
+    {
+      "id": "57e6e9ee-e950-414b-bd6f-db83fb03b0da",
+      "name": "Claude Generate Digest",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1200,
+        1600
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "PLACEHOLDER_ANTHROPIC_API_KEY"
+            },
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 1024, messages: [{ role: 'user', content: $json.digestPrompt }] }) }}"
+      }
+    },
+    {
+      "id": "78bfd7ab-d34b-4e1e-bc31-7a6a5f86496b",
+      "name": "Format Digest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1500,
+        1600
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const response = $input.first().json;\nconst context = $('Prepare Digest Data').first().json;\n\nlet digestText = '';\ntry {\n  digestText = response.content[0].text;\n} catch (e) {\n  digestText = 'Failed to generate digest: ' + e.message;\n}\n\nconst header = `*Daily Support Digest — ${context.business_name}*\\n` +\n  `_${new Date().toISOString().split('T')[0]} | ${context.total_messages} messages in last 24h_\\n\\n`;\n\nreturn [{ json: {\n  digest_text: header + digestText,\n  digest_channel: context.digest_channel,\n  digest_email: context.digest_email\n} }];"
+      }
+    },
+    {
+      "id": "d9fa575a-237e-49d2-92c8-c4954146bc22",
+      "name": "Send Daily Digest",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2,
+      "position": [
+        1800,
+        1600
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "channel": "={{ $json.digest_channel }}",
+        "text": "={{ $json.digest_text }}"
+      }
+    },
+    {
+      "id": "08e47366-cef3-49f7-bbc9-6b9a3b531b1e",
+      "name": "Read Log for Rate Limit",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [
+        2250,
+        0
+      ],
+      "parameters": {
+        "resource": "databasePage",
+        "operation": "getAll",
+        "databaseId": "PLACEHOLDER_LOG_DB_ID",
+        "returnAll": true,
+        "simple": true
+      }
+    },
+    {
+      "id": "3feaff2a-f5bb-459f-80bd-b64c85341c11",
+      "name": "Rate Limiter",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2400,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const logEntries = $('Read Log for Rate Limit').all().map(i => i.json);\nconst config = $('Parse Claude Response').first().json.config || {};\nconst maxPerHour = parseInt(config.max_auto_responses_per_hour || '50');\nconst autoRespond = (config.auto_respond_enabled || 'TRUE').toUpperCase() === 'TRUE';\n\n// Count auto-responses in the last hour\nconst oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);\nconst recentAutoCount = logEntries.filter(e => {\n  return (e['Action Taken'] || '').includes('Auto-responded') &&\n    new Date(e.Timestamp) > oneHourAgo;\n}).length;\n\nconst data = $input.first().json;\n\nif (!autoRespond || recentAutoCount >= maxPerHour) {\n  // Redirect to approval path\n  return [{ json: { ...data, _rate_limited: true, _rate_reason: !autoRespond ? 'auto-respond disabled' : 'rate limit reached (' + recentAutoCount + '/' + maxPerHour + ')' } }];\n}\n\nreturn [{ json: { ...data, _rate_limited: false } }];"
+      }
+    },
+    {
+      "id": "9e04b60f-bf2a-41cc-8cad-f9461eb3eb22",
+      "name": "Under Rate Limit?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2550,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json._rate_limited }}",
+              "rightValue": "false",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "e6e64023-02ad-4d5a-9885-22c038183e02",
+      "name": "Send Auto-Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2700,
+        100
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Send response based on source channel\nconst data = $input.first().json;\nconst source = data.source || 'webhook';\nconst response = data.formatted_response;\nconst customerName = data.customer_name || 'Customer';\n\n// This node prepares the send payload.\n// In production, connect the appropriate send node downstream:\n// - Email: n8n Send Email node (SMTP)\n// - Slack: Slack Post Message node (to thread)\n// - Webhook: HTTP Request node (callback URL)\n\n// For now, we pass through with send metadata so the response\n// is available to the next node (Log) and can also be used\n// by a channel-specific send node added in the editor.\n\nreturn [{\n  json: {\n    ...data,\n    _send_status: 'sent',\n    _send_channel: source,\n    _send_to: data['Customer Identifier'] || data.customer_id,\n    _send_response: response,\n    _send_timestamp: new Date().toISOString()\n  }\n}];"
+      }
+    },
+    {
+      "id": "515bdd3e-4b6c-4272-8383-1aba7b036f73",
+      "name": "Send Approved Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4200,
+        700
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Send the approved/edited response to the customer\nconst data = $input.first().json;\nconst finalResponse = data._final_response || data['Final Response'] || data['Response Sent'] || '';\nconst customerName = data._customer_name || data['Customer Identifier'] || 'Customer';\n\n// Prepare send payload - connect a channel-specific send node in the editor:\n// - Email: n8n Send Email node\n// - Slack: Slack Post Message node\n// - Webhook: HTTP Request node\n\nreturn [{\n  json: {\n    ...data,\n    _send_status: 'sent',\n    _send_response: finalResponse,\n    _send_to: customerName,\n    _send_timestamp: new Date().toISOString()\n  }\n}];"
+      }
+    },
+    {
+      "id": "9fa54468-1231-4abf-ba0a-a6bcb1f543cc",
+      "name": "Send Escalation Ack",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3300,
+        500
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Send acknowledgment to customer for escalated messages\nconst data = $input.first().json;\nconst customerName = data.customer_name || 'there';\nconst ackMessage = \"Hi \" + customerName + \",\\n\\nI've flagged your message for our team and someone will get back to you shortly. We take your concern seriously and want to make sure you get the best possible help.\\n\\nThank you for your patience.\";\n\n// Prepare ack payload - connect channel-specific send node in editor\nreturn [{\n  json: {\n    ...data,\n    _ack_message: ackMessage,\n    _ack_sent: true,\n    _send_status: 'sent',\n    _send_to: data.customer_id,\n    _send_channel: data.source,\n    _send_timestamp: new Date().toISOString()\n  }\n}];"
+      }
+    },
+    {
+      "id": "e28a6e0b-199e-4a72-a45e-fa052ac345b3",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        1600
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "aa6817a9-8da4-4152-9969-3ca6051bd24d",
+      "name": "Handle Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        300,
+        1600
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Format error details for alerting\nconst error = $input.first().json;\nconst execution = error.execution || {};\nconst workflow = error.workflow || {};\nconst errorNode = execution.lastNodeExecuted || 'Unknown';\nconst errorMessage = execution.error?.message || 'Unknown error';\n\nconst alertText = '*⚠️ AI Support Agent Error*\\n\\n' +\n  '*Node:* ' + errorNode + '\\n' +\n  '*Error:* ' + errorMessage + '\\n' +\n  '*Workflow:* ' + (workflow.name || 'AI Support Agent') + '\\n' +\n  '*Time:* ' + new Date().toISOString() + '\\n\\n' +\n  'Check the n8n execution log for details.';\n\nreturn [{\n  json: {\n    alert_text: alertText,\n    error_node: errorNode,\n    error_message: errorMessage,\n    timestamp: new Date().toISOString()\n  }\n}];"
+      }
+    },
+    {
+      "id": "e779ba43-7dc6-4b8a-98c5-021f0f9dbe99",
+      "name": "Send Error Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2,
+      "position": [
+        600,
+        1600
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "channel": "PLACEHOLDER_ERROR_CHANNEL",
+        "text": "={{ $json.alert_text }}"
+      }
+    },
+    {
+      "id": "f7508878-e41b-455f-8859-f7300fd4f3c8",
+      "name": "Log Error",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [
+        900,
+        1600
+      ],
+      "parameters": {
+        "resource": "databasePage",
+        "operation": "create",
+        "databaseId": "PLACEHOLDER_LOG_DB_ID",
+        "simple": true,
+        "propertiesUi": {
+          "propertyValues": [
+            {
+              "key": "Customer Identifier|title",
+              "title": "={{ $json[\"Customer Identifier\"] }}"
+            },
+            {
+              "key": "Timestamp|rich_text",
+              "textContent": "={{ $json[\"Timestamp\"] }}"
+            },
+            {
+              "key": "Source Channel|rich_text",
+              "textContent": "={{ $json[\"Source Channel\"] }}"
+            },
+            {
+              "key": "Original Message|rich_text",
+              "textContent": "={{ $json[\"Original Message\"] }}"
+            },
+            {
+              "key": "AI Classification|rich_text",
+              "textContent": "={{ $json[\"AI Classification\"] }}"
+            },
+            {
+              "key": "Confidence Score|number",
+              "numberValue": "={{ $json[\"Confidence Score\"] }}"
+            },
+            {
+              "key": "Action Taken|rich_text",
+              "textContent": "={{ $json[\"Action Taken\"] }}"
+            },
+            {
+              "key": "Response Sent|rich_text",
+              "textContent": "={{ $json[\"Response Sent\"] }}"
+            },
+            {
+              "key": "Response Source|rich_text",
+              "textContent": "={{ $json[\"Response Source\"] }}"
+            },
+            {
+              "key": "Thread ID|rich_text",
+              "textContent": "={{ $json[\"Thread ID\"] }}"
+            },
+            {
+              "key": "Resolution Status|rich_text",
+              "textContent": "={{ $json[\"Resolution Status\"] }}"
+            },
+            {
+              "key": "Time to Response|number",
+              "numberValue": "={{ $json[\"Time to Response\"] }}"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Support Intake Webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalize Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Message": {
+      "main": [
+        [
+          {
+            "node": "Read Knowledge Base",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Knowledge Base": {
+      "main": [
+        [
+          {
+            "node": "Read Agent Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Agent Config": {
+      "main": [
+        [
+          {
+            "node": "Read Thread History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Context for Claude": {
+      "main": [
+        [
+          {
+            "node": "Claude Classification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude Classification": {
+      "main": [
+        [
+          {
+            "node": "Parse Claude Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Claude Response": {
+      "main": [
+        [
+          {
+            "node": "Confidence Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Confidence Router": {
+      "main": [
+        [
+          {
+            "node": "Read Log for Rate Limit",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Pending Data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Read Team Directory (Escalation)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Format Auto-Response": {
+      "main": [
+        [
+          {
+            "node": "Send Auto-Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log to Conversation Log": {
+      "main": [
+        [
+          {
+            "node": "Update KB Usage Stats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Pending Data": {
+      "main": [
+        [
+          {
+            "node": "Write Pending Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write Pending Approval": {
+      "main": [
+        [
+          {
+            "node": "Read Team Directory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Team Directory": {
+      "main": [
+        [
+          {
+            "node": "Route to Reviewer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route to Reviewer": {
+      "main": [
+        [
+          {
+            "node": "Send Review Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Review Notification": {
+      "main": [
+        [
+          {
+            "node": "Log Pending to Conversation Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Pending to Conversation Log": {
+      "main": [
+        [
+          {
+            "node": "Write Pending Log Entry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approval Webhook": {
+      "main": [
+        [
+          {
+            "node": "Read Pending Approvals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Pending Approvals": {
+      "main": [
+        [
+          {
+            "node": "Process Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Approval": {
+      "main": [
+        [
+          {
+            "node": "Update Pending Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Pending Status": {
+      "main": [
+        [
+          {
+            "node": "Approval Action Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approval Action Router": {
+      "main": [
+        [
+          {
+            "node": "Log Approved Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Approved Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Read Thread History": {
+      "main": [
+        [
+          {
+            "node": "Format Context for Claude",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Team Directory (Escalation)": {
+      "main": [
+        [
+          {
+            "node": "Route Escalation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Escalation": {
+      "main": [
+        [
+          {
+            "node": "Send Escalation Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Escalation Alert": {
+      "main": [
+        [
+          {
+            "node": "Send Escalation Ack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Escalation Log": {
+      "main": [
+        [
+          {
+            "node": "Log Escalation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Approved Response": {
+      "main": [
+        [
+          {
+            "node": "Send Approved Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Add to KB": {
+      "main": [
+        [
+          {
+            "node": "Create KB Entry",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Create KB Entry": {
+      "main": [
+        [
+          {
+            "node": "Write New KB Entry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Follow-Up Schedule": {
+      "main": [
+        [
+          {
+            "node": "Read Config (Follow-Up)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Config (Follow-Up)": {
+      "main": [
+        [
+          {
+            "node": "Read Conversation Log (Follow-Up)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Conversation Log (Follow-Up)": {
+      "main": [
+        [
+          {
+            "node": "Find Stale Conversations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Stale Conversations": {
+      "main": [
+        [
+          {
+            "node": "Has Stale Items?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Stale Items?": {
+      "main": [
+        [
+          {
+            "node": "Send Stale Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Daily Digest Schedule": {
+      "main": [
+        [
+          {
+            "node": "Read Config (Digest)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Config (Digest)": {
+      "main": [
+        [
+          {
+            "node": "Read Conversation Log (Digest)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Conversation Log (Digest)": {
+      "main": [
+        [
+          {
+            "node": "Prepare Digest Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Digest Data": {
+      "main": [
+        [
+          {
+            "node": "Claude Generate Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude Generate Digest": {
+      "main": [
+        [
+          {
+            "node": "Format Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Digest": {
+      "main": [
+        [
+          {
+            "node": "Send Daily Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Log for Rate Limit": {
+      "main": [
+        [
+          {
+            "node": "Rate Limiter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rate Limiter": {
+      "main": [
+        [
+          {
+            "node": "Under Rate Limit?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Under Rate Limit?": {
+      "main": [
+        [
+          {
+            "node": "Format Auto-Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Pending Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Auto-Response": {
+      "main": [
+        [
+          {
+            "node": "Log to Conversation Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Approved Response": {
+      "main": [
+        [
+          {
+            "node": "Check Add to KB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Escalation Ack": {
+      "main": [
+        [
+          {
+            "node": "Prepare Escalation Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Handle Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Handle Error": {
+      "main": [
+        [
+          {
+            "node": "Send Error Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Error Alert": {
+      "main": [
+        [
+          {
+            "node": "Log Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
