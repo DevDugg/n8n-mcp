@@ -481,7 +481,7 @@ export const PROJECT_MANAGEMENT_NODES: Record<string, NodeSchema> = {
     displayName: "Linear",
     description: "Manage issues, projects, and teams in Linear",
     category: "project",
-    typeVersion: 1,
+    typeVersion: 1.1,
     inputs: ["main"],
     outputs: ["main"],
     credentials: [
@@ -560,7 +560,7 @@ export const PROJECT_MANAGEMENT_NODES: Record<string, NodeSchema> = {
     description: "Manage databases, pages, and blocks in Notion",
     category: "project",
     subcategory: "productivity",
-    typeVersion: 2,
+    typeVersion: 2.2,
     inputs: ["main"],
     outputs: ["main"],
     credentials: [
@@ -644,7 +644,7 @@ export const PROJECT_MANAGEMENT_NODES: Record<string, NodeSchema> = {
     description: "Manage tasks and projects in Todoist",
     category: "project",
     subcategory: "productivity",
-    typeVersion: 2,
+    typeVersion: 2.2,
     inputs: ["main"],
     outputs: ["main"],
     credentials: [

@@ -12,7 +12,7 @@ export const DEVOPS_NODES: Record<string, NodeSchema> = {
     displayName: "GitHub",
     description: "Manage repositories, issues, and pull requests on GitHub",
     category: "devops",
-    typeVersion: 1,
+    typeVersion: 1.1,
     inputs: ["main"],
     outputs: ["main"],
     credentials: [
@@ -1202,7 +1202,7 @@ export const DEVOPS_NODES: Record<string, NodeSchema> = {
     displayName: "Google BigQuery",
     description: "Execute queries and manage data in Google BigQuery",
     category: "devops",
-    typeVersion: 2,
+    typeVersion: 2.1,
     inputs: ["main"],
     outputs: ["main"],
     credentials: [

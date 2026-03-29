@@ -31,7 +31,7 @@ export const TRIGGER_NODES: Record<string, NodeSchema> = {
     displayName: "Schedule Trigger",
     description: "Starts the workflow at specified intervals or cron expressions",
     category: "trigger",
-    typeVersion: 1.2,
+    typeVersion: 1.3,
     inputs: [],
     outputs: ["main"],
     parameters: [
@@ -88,7 +88,7 @@ export const TRIGGER_NODES: Record<string, NodeSchema> = {
     displayName: "Webhook",
     description: "Starts workflow when webhook is called. Creates an HTTP endpoint.",
     category: "trigger",
-    typeVersion: 2,
+    typeVersion: 2.1,
     inputs: [],
     outputs: ["main"],
     parameters: [
@@ -258,7 +258,7 @@ export const TRIGGER_NODES: Record<string, NodeSchema> = {
     displayName: "n8n Form Trigger",
     description: "Starts workflow when a form is submitted. Creates a hosted form.",
     category: "trigger",
-    typeVersion: 2,
+    typeVersion: 2.5,
     inputs: [],
     outputs: ["main"],
     parameters: [
@@ -1722,6 +1722,74 @@ export const TRIGGER_NODES: Record<string, NodeSchema> = {
       },
     ],
     documentationUrl: "https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.chattrigger/",
+  },
+
+  "n8n-nodes-base.evaluationTrigger": {
+    type: "n8n-nodes-base.evaluationTrigger",
+    displayName: "Evaluation Trigger",
+    description: "Triggers workflow for AI model evaluation runs",
+    category: "trigger",
+    typeVersion: 1,
+    inputs: [],
+    outputs: ["main"],
+    parameters: [
+      {
+        name: "evaluationId",
+        type: "string",
+        required: false,
+        description: "ID of the evaluation to trigger for",
+      },
+    ],
+    examples: [
+      {
+        name: "Start Evaluation",
+        description: "Trigger an evaluation run",
+        parameters: {},
+      },
+    ],
+    documentationUrl: "https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.evaluationtrigger/",
+  },
+
+  "n8n-nodes-base.mcpServerTrigger": {
+    type: "n8n-nodes-base.mcpServerTrigger",
+    displayName: "MCP Server Trigger",
+    description: "Exposes workflow as an MCP (Model Context Protocol) server tool for AI agents",
+    category: "trigger",
+    typeVersion: 1,
+    inputs: [],
+    outputs: ["main"],
+    parameters: [
+      {
+        name: "toolName",
+        type: "string",
+        required: true,
+        description: "Name of the MCP tool to expose",
+        placeholder: "my_tool",
+      },
+      {
+        name: "toolDescription",
+        type: "string",
+        required: true,
+        description: "Description of what this tool does",
+      },
+      {
+        name: "inputSchema",
+        type: "json",
+        required: false,
+        description: "JSON Schema for the tool's input parameters",
+      },
+    ],
+    examples: [
+      {
+        name: "Expose as MCP Tool",
+        description: "Make this workflow available as an MCP tool",
+        parameters: {
+          toolName: "search_database",
+          toolDescription: "Search the internal database for records",
+        },
+      },
+    ],
+    documentationUrl: "https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.mcpservertrigger/",
   },
 
 };

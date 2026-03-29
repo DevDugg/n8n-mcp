@@ -10,7 +10,7 @@ export const FLOW_NODES: Record<string, NodeSchema> = {
     displayName: "If",
     description: "Route items to different branches based on conditions (true/false)",
     category: "flow",
-    typeVersion: 2.2,
+    typeVersion: 2.3,
     inputs: ["main"],
     outputs: ["main", "main"],
     parameters: [
@@ -93,7 +93,7 @@ export const FLOW_NODES: Record<string, NodeSchema> = {
     displayName: "Switch",
     description: "Route items to multiple outputs based on value matching",
     category: "flow",
-    typeVersion: 3.2,
+    typeVersion: 3.4,
     inputs: ["main"],
     outputs: ["main", "main", "main", "main"],
     parameters: [
@@ -172,7 +172,7 @@ export const FLOW_NODES: Record<string, NodeSchema> = {
     displayName: "Merge",
     description: "Merge data from multiple inputs into a single stream",
     category: "flow",
-    typeVersion: 3,
+    typeVersion: 3.2,
     inputs: ["main", "main"],
     outputs: ["main"],
     parameters: [
@@ -380,7 +380,7 @@ export const FLOW_NODES: Record<string, NodeSchema> = {
     displayName: "Respond to Webhook",
     description: "Send custom response to webhook that triggered the workflow",
     category: "flow",
-    typeVersion: 1.1,
+    typeVersion: 1.5,
     inputs: ["main"],
     outputs: ["main"],
     parameters: [

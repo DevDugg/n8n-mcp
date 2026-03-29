@@ -105,7 +105,7 @@ export const DATA_NODES: Record<string, NodeSchema> = {
     displayName: "Filter",
     description: "Filter items based on conditions",
     category: "data",
-    typeVersion: 2.2,
+    typeVersion: 2.3,
     inputs: ["main"],
     outputs: ["main"],
     parameters: [

@@ -12,7 +12,7 @@ export const COMMUNICATION_NODES: Record<string, NodeSchema> = {
     displayName: "Slack",
     description: "Send messages, upload files, and manage Slack workspaces",
     category: "communication",
-    typeVersion: 2,
+    typeVersion: 2.4,
     inputs: ["main"],
     outputs: ["main"],
     credentials: [
@@ -206,7 +206,7 @@ export const COMMUNICATION_NODES: Record<string, NodeSchema> = {
     displayName: "Telegram",
     description: "Send messages, photos, documents via Telegram Bot API",
     category: "communication",
-    typeVersion: 1,
+    typeVersion: 1.2,
     inputs: ["main"],
     outputs: ["main"],
     credentials: [
